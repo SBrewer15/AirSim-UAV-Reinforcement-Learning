@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import time
 import cv2
+import nb_files.nb_Utilities as util
 
 class Environment:
     def __init__(self, vehicle_name,  home= (0,0,0), maxz=120, maxspeed=8.33, episode_time=9): # change episode_time to 900 seconds (15 minutes)
@@ -33,8 +34,10 @@ class Environment:
                                    vehicle_name=self.vehicle_name).join()  #(note the inverted Z axis)
         print("Honey I'm home")
         self.client.hoverAsync(vehicle_name=self.vehicle_name).join()
-
-        self.addWeather(weather=True, leaf=0.05, Roadwetness=0.1)
+        # initialize gps data to dataframe here
+        self.df_gps=util.GPShistory(self.client.getMultirotorState().kinematics_estimated.position,
+                           self.client.getMultirotorState().kinematics_estimated.linear_velocity,
+                           0, time.time_ns())
         time.sleep(2)
 
     def reset(self):
@@ -47,6 +50,10 @@ class Environment:
                                    vehicle_name=self.vehicle_name).join()
         print("Honey I'm home")
         self.client.hoverAsync(vehicle_name=self.vehicle_name).join()
+        # initialize gps data to dataframe here
+        self.df_gps=util.GPShistory(self.client.getMultirotorState().kinematics_estimated.position,
+                           self.client.getMultirotorState().kinematics_estimated.linear_velocity,
+                           0, time.time_ns())
         time.sleep(0.5)
 
 
@@ -61,13 +68,13 @@ class Environment:
         # convert actions to movement
         quad_vel = self.client.getMultirotorState().kinematics_estimated.linear_velocity
         self.quad_offset = self.interpret_action(action)
-        MOVEMENT_INTERVAL = 1
+
         self.client.moveByVelocityAsync(
             quad_vel.x_val + self.quad_offset[0],
             quad_vel.y_val + self.quad_offset[1],
             quad_vel.z_val + self.quad_offset[2],
             1 ).join()
-        quad_state = self.client.getMultirotorState().kinematics_estimated.position
+        # add check to keep below max speed
         #print( quad_state)
         time.sleep(0.5)
         # get images
@@ -101,8 +108,8 @@ class Environment:
         # penalize entering no fly zone
 
     def next_state(self):
-        # size 224x224 images
-        # get depth image
+        # convert to size 224x224 images
+        # get depth image and front camera
         responses = self.client.simGetImages([airsim.ImageRequest("front_center", airsim.ImageType.DepthPlanar, pixels_as_float=True),
                                               airsim.ImageRequest("front_center", airsim.ImageType.Scene, False, False),
                                               airsim.ImageRequest("bottom_center", airsim.ImageType.Scene, False, False),
@@ -110,31 +117,15 @@ class Environment:
 
 
         ])
-        gps_data = self.client.getGpsData()
-        #print(gps_data)
+        self.df_gps.appendGPShistory(self.client.getMultirotorState().kinematics_estimated.position,
+                           self.client.getMultirotorState().kinematics_estimated.linear_velocity,
+                           0, time.time_ns())
+        #print(self.df_gps.df.head())
 
+        img_depth=util.byte2np_Depth(responses[0], Save=True, path='data', filename='Front_center_DepthPlanar')
+        img_rgb=util.byte2np_RGB(responses[1], Save=True, path='data', filename='Front_center_RGB')
+        img_bottom=util.byte2np_RGB(responses[2], Save=True, path='data', filename='Bottom_center_RGB')
 
-        for idx, response in enumerate(responses):
-            filename = os.path.join('data', str(idx))
-            #print(response.height, response.width)
-            if idx==0:
-                 filename = os.path.join('data', 'Front_center_DepthPlanar')
-                 img1d = np.array(response.image_data_float, dtype=np.float)
-                 img1d = img1d * 3.5 + 30
-                 img1d[img1d > 255] = 255
-                 depth = np.reshape(img1d, (response.height, response.width))
-                 np.save(filename, depth)
-            elif idx ==1:
-                filename = os.path.join('data', 'Front_center_RGB')
-                img1d = np.fromstring(response.image_data_uint8, dtype=np.uint8) # get numpy array
-                img_rgb = img1d.reshape(3, response.height, response.width) # reshape array to 4 channel image array H X W X 3
-                np.save(filename, img_rgb)
-
-            else:
-                filename = os.path.join('data', 'Bottom_center_RGB')
-                img1d = np.fromstring(response.image_data_uint8, dtype=np.uint8) # get numpy array
-                img_rgb = img1d.reshape(3, response.height, response.width) # reshape array to 4 channel image array H X W X 3
-                np.save(filename, img_rgb)
 
 
 
@@ -169,7 +160,8 @@ class Environment:
         return self.quad_offset
 
 
-    def addWeather(self, weather= False, fog=0.0, rain=0.0, dust=0.0, snow=0.0, leaf=0.0, Roadwetness=0.0):
+    def addWeather(self, weather= False, fog=0.0, rain=0.0, dust=0.0,
+                        snow=0.0, leaf=0.0, Roadwetness=0.0):
         self.client.simEnableWeather(weather)
         if weather==True:
             self.client.simSetWeatherParameter(airsim.WeatherParameter.Fog, fog);
