@@ -16,6 +16,7 @@ class Environment:
         self.maxspeed=maxspeed
         self.episode_time=episode_time
         self.reward=0
+        self.sz=(224,224)
 
 
     def StartTime(self, start):
@@ -37,7 +38,7 @@ class Environment:
         # initialize gps data to dataframe here
         self.df_gps=util.GPShistory(self.client.getMultirotorState().kinematics_estimated.position,
                            self.client.getMultirotorState().kinematics_estimated.linear_velocity,
-                           0, time.time_ns())
+                           0, time.time_ns(), self.vehicle_name, self.sz, self.maxspeed)
         time.sleep(2)
 
     def reset(self):
@@ -53,7 +54,7 @@ class Environment:
         # initialize gps data to dataframe here
         self.df_gps=util.GPShistory(self.client.getMultirotorState().kinematics_estimated.position,
                            self.client.getMultirotorState().kinematics_estimated.linear_velocity,
-                           0, time.time_ns())
+                           0, time.time_ns(), self.vehicle_name, self.sz, self.maxspeed)
         time.sleep(0.5)
 
 
@@ -79,7 +80,6 @@ class Environment:
         time.sleep(0.5)
         # get images
         next_state=self.next_state()
-
 
         return 'next_state', 'reward', self.done(), 'info'
 
@@ -114,18 +114,17 @@ class Environment:
                                               airsim.ImageRequest("front_center", airsim.ImageType.Scene, False, False),
                                               airsim.ImageRequest("bottom_center", airsim.ImageType.Scene, False, False),
 
-
-
         ])
         self.df_gps.appendGPShistory(self.client.getMultirotorState().kinematics_estimated.position,
                            self.client.getMultirotorState().kinematics_estimated.linear_velocity,
-                           0, time.time_ns())
+                           0, time.time_ns(), self.vehicle_name)
         #print(self.df_gps.df.head())
 
         img_depth=util.byte2np_Depth(responses[0], Save=True, path='data', filename='Front_center_DepthPlanar')
         img_rgb=util.byte2np_RGB(responses[1], Save=True, path='data', filename='Front_center_RGB')
         img_bottom=util.byte2np_RGB(responses[2], Save=True, path='data', filename='Bottom_center_RGB')
 
+        img_gps=self.df_gps.GPS2image(Save=True, path='data', filename='GSP')
 
 
 
