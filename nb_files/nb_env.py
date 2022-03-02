@@ -4,6 +4,7 @@ import airsim
 import os
 import numpy as np
 import pandas as pd
+import math
 import time
 import cv2
 import nb_files.nb_Utilities as util
@@ -69,11 +70,12 @@ class Environment:
         # convert actions to movement
         quad_vel = self.client.getMultirotorState().kinematics_estimated.linear_velocity
         self.quad_offset = self.interpret_action(action)
+        x_vel , y_vel, z_vel=self.governor()
 
         self.client.moveByVelocityAsync(
-            quad_vel.x_val + self.quad_offset[0],
-            quad_vel.y_val + self.quad_offset[1],
-            quad_vel.z_val + self.quad_offset[2],
+        x_vel , y_vel, z_vel, #    quad_vel.x_val + self.quad_offset[0],
+                              #    quad_vel.y_val + self.quad_offset[1],
+                              #   quad_vel.z_val + self.quad_offset[2],
             1 ).join()
         # add check to keep below max speed
         #print( quad_state)
@@ -120,11 +122,11 @@ class Environment:
                            0, time.time_ns(), self.vehicle_name)
         #print(self.df_gps.df.head())
 
-        img_depth=util.byte2np_Depth(responses[0], Save=True, path='data', filename='Front_center_DepthPlanar')
-        img_rgb=util.byte2np_RGB(responses[1], Save=True, path='data', filename='Front_center_RGB')
-        img_bottom=util.byte2np_RGB(responses[2], Save=True, path='data', filename='Bottom_center_RGB')
+        img_depth=util.byte2np_Depth(responses[0], Save=False, path='data', filename='Front_center_DepthPlanar')
+        img_rgb=util.byte2np_RGB(responses[1], Save=False, path='data', filename='Front_center_RGB')
+        img_bottom=util.byte2np_RGB(responses[2], Save=False, path='data', filename='Bottom_center_RGB')
 
-        img_gps=self.df_gps.GPS2image(Save=True, path='data', filename='GSP')
+        img_gps=self.df_gps.GPS2image(Save=False, path='data', filename='GPS')
 
 
 
@@ -157,6 +159,25 @@ class Environment:
             self.quad_offset = (0, 0, -scale)
 
         return self.quad_offset
+
+    def governor(self):
+        '''converts z velocity to zero if above limit,
+        returns x, y, and z velocities in proportion to current but under max velocity'''
+
+        quad_vel = self.client.getMultirotorState().kinematics_estimated.linear_velocity
+        z_pos = self.client.getMultirotorState().kinematics_estimated.position.z_val
+        x_vel=quad_vel.x_val + self.quad_offset[0]
+        y_vel=quad_vel.y_val + self.quad_offset[1]
+        z_vel=quad_vel.z_val + self.quad_offset[2]
+
+        if z_pos <-self.maxz: z=0
+        rss=math.sqrt(x_vel*x_vel+y_vel*y_vel+z_vel*z_vel)
+        if rss>self.maxspeed:
+            x_vel=x_vel/rss*self.maxspeed
+            y_vel=y_vel/rss*self.maxspeed
+            z_vel=z_vel/rss*self.maxspeed
+
+        return x_vel , y_vel, z_vel
 
 
     def addWeather(self, weather= False, fog=0.0, rain=0.0, dust=0.0,

@@ -86,6 +86,9 @@ class GPShistory:
     def saveGPS2csv(self, filename):
         self.df.to_csv(filename, index=False)
 
+    def loadGPScsv(self, filename):
+        self.df=pd.read_csv(filename)
+
     def GPS2image(self, Save=False, path='data', filename='Test'):
         df=self.df.copy()
         # no fly zones still need to be implimented
@@ -106,7 +109,7 @@ class GPShistory:
                 clr='YlOrRd'; rad=20
                 x_cntr=frame.loc[frame.index[-1],'x_position']
                 y_cntr=frame.loc[frame.index[-1],'y_position']
-                #plt.plot(frame['x_position'], frame['y_position'], color='k', lw=6) # makes a black edge to line
+                # plt.plot(frame['x_position'], frame['y_position'], color='k', lw=6) # makes a black edge to line (not working in linux)
                 # set the most recent position to the center of plot and shows 20 meters in all directions
                 plt.xlim(x_cntr-rad,x_cntr+rad); plt.ylim(y_cntr-rad,y_cntr+rad)
 
@@ -129,7 +132,12 @@ class GPShistory:
         # plot to image array
         arr = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
         arr = arr.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        plt.close('all')
+        plt.close(fig)
+        plt.figure().clear()
+        plt.close()
+        plt.cla()
+        plt.clf()
+        # this padding only works for 224x224 images
         arr=cv2.resize(arr[11:arr.shape[0]-28,38:arr.shape[0]-10], (self.sz), interpolation=cv2.INTER_CUBIC)
         img=arr.copy()
         arr=arr.reshape((3,)+self.sz)
@@ -139,6 +147,7 @@ class GPShistory:
             fig = plt.figure()
             plt.imshow(img)
             fig.savefig(filename+'.png')
-            plt.close('all')
+            plt.close(fig)
 
         return arr
+
