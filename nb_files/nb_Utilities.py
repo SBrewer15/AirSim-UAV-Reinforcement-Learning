@@ -34,24 +34,66 @@ def set_seed(x):
     if T.cuda.is_available():
         T.cuda.manual_seed_all(x)
 
-def byte2np_RGB(response, Save=False, path='data', filename='Test'):
+def byte2np_RGB(response, Save=False, path='data', filename='Test', ClrFirst=True):
     img1d = np.fromstring(response.image_data_uint8, dtype=np.uint8)
     # reshape array to 4 channel image array H X W X 4
-    img_rgb = img1d.reshape(3, response.height, response.width)
+    if ClrFirst: img_rgb = img1d.reshape(3, response.height, response.width)
+    else: img_rgb = img1d.reshape(response.height, response.width, 3)
     if Save:
         filename = os.path.join(path, filename)
         np.save(filename, img_rgb)
     return img_rgb
 
-def byte2np_Depth(response, Save=False, path='data', filename='Test'):
+def byte2np_Depth(response, Save=False, path='data', filename='Test', Normalize=True):
     img1d = np.array(response.image_data_float, dtype=np.float)
-    img1d = img1d * 3.5 + 30
-    img1d[img1d > 255] = 255
+    if Normalize:
+        img1d = img1d * 3.5 + 30
+        img1d[img1d > 255] = 255
+        img1d=img1d/255
     depth = np.reshape(img1d, (response.height, response.width))
     if Save:
         filename = os.path.join(path, filename)
         np.save(filename, depth)
     return depth
+
+def ChangeColor(img, clr_og, clr_new):
+    r1, g1, b1 = clr_og # Original value
+    r2, g2, b2 = clr_new # Value that we want to replace it with
+
+    blue, green, red = img[:,:,0], img[:,:,1], img[:,:,2]
+    mask = (red == r1) & (green == g1) & (blue == b1)
+    img[:,:,:3][mask] = [b2, g2, r2]
+    return img
+
+def byte2np_Seg(response, Save=False, path='data', filename=f'Test'):
+    img1d = np.fromstring(response.image_data_uint8, dtype=np.uint8)
+    img = img1d.reshape(response.height, response.width, 3)
+    # Change sky and road color
+    road = [177, 172, 224] # RGB road
+    sky = [128, 219, 130] # RGB Sky
+
+    img=ChangeColor(img, clr_og=road, clr_new=[255,255,255])
+    img=ChangeColor(img, clr_og=sky, clr_new=[0,0,0])
+    # convert to greyscale
+    img=cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)/255
+    if Save:
+        filename = os.path.join(path, filename)
+        np.save(filename, img)
+    return img
+
+def Distance2Grnd(img, sz, rng=10):
+    x,y=sz
+    x=int(x/2)
+    y=int(y/2)
+    return np.mean(img[x-rng:x+rng,y-rng:y+rng])
+
+def isRoadBelow(img, sz, rng=10):
+    x,y=sz
+    x=int(x/2)
+    y=int(y/2)
+    med=np.median(img[x-rng:x+rng,y-rng:y+rng])
+    if med >0.98: return True
+    else: return False
 
 def plotcolorline(x, y, z, cmap='YlOrRd', norm=plt.Normalize(0.0, 1.0),
               linewidth=3, alpha=1.0):
@@ -126,7 +168,8 @@ class GPShistory:
                      , marker='o', color="gray", ms=8, markeredgecolor='black',linestyle='None')
 
         plt.tight_layout()
-        plt.gca().set_axis_off()
+        ax=plt.gca(); ax.set_axis_off()
+        ax.add_patch(patches.Rectangle((x_cntr-rad,y_cntr-rad+1), width=rad*2-1, height=rad*2-1, ec='k', facecolor=(0,0,0,0)))
         fig.canvas.draw()
 
         # plot to image array

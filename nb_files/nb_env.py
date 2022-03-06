@@ -33,20 +33,27 @@ class Environment:
         self.client.armDisarm(True, vehicle_name=self.vehicle_name)        # arm Drone
 
         self.client.takeoffAsync(vehicle_name=self.vehicle_name).join()  # let take-off
-        self.client.moveToPositionAsync(self.home[0], self.home[1], self.home[2], 5, # 5m/s
-                                   vehicle_name=self.vehicle_name).join()  #(note the inverted Z axis)
-
+        print("Initilized")
         self.SetSegmentID()
-        print("Honey I'm home")
         self.client.hoverAsync(vehicle_name=self.vehicle_name).join()
-        # initialize gps data to dataframe here
-        self.df_gps=util.GPShistory(self.client.getMultirotorState().kinematics_estimated.position,
-                           self.client.getMultirotorState().kinematics_estimated.linear_velocity,
-                           0, time.time_ns(), self.vehicle_name, self.sz, self.maxspeed)
-        time.sleep(2)
-        responses = self.get_observations()
 
-    def reset(self):
+    def initializeState(self):
+        h,w=self.sz
+        responses = self.get_observations()
+        depth=util.byte2np_Depth(self.responses[0])
+        seg=util.byte2np_Seg(self.responses[2])
+        # GPS needs to be added
+        state = np.random.random_sample((4,h,w))
+        state[0]=seg
+        state[1]=depth
+        state[2]=depth
+        state[3]=depth
+
+        self.state=state
+
+    def reset(self, weather= False, fog=0.0, rain=0.0, dust=0.0,
+                        snow=0.0, leaf=0.0, Roadwetness=0.0, wind=(0,0,0)):
+        self.addWeather(weather, fog, rain, dust, snow, leaf, Roadwetness, wind)
         self.client.reset()
         self.client.enableApiControl(True)
         self.client.armDisarm(True)
@@ -60,9 +67,10 @@ class Environment:
         self.df_gps=util.GPShistory(self.client.getMultirotorState().kinematics_estimated.position,
                            self.client.getMultirotorState().kinematics_estimated.linear_velocity,
                            0, time.time_ns(), self.vehicle_name, self.sz, self.maxspeed)
-        time.sleep(0.5)
-        responses = self.get_observations()
-
+        time.sleep(2)
+        self.initializeState()
+        self.deltaTime=0
+        return self.state
 
     def get_position(self):
         return self.client.getMultirotorState().kinematics_estimated.position
@@ -79,19 +87,18 @@ class Environment:
         self.client.moveByVelocityAsync(x_vel , y_vel, z_vel, 1 ).join() # movement interval needs to be understood
         # add check to keep below max speed
         #print( quad_state)
-        time.sleep(0.5)
+        
         # get images
         next_state=self.next_state()
 
-        #reward=self.reward()
+        reward=self.Calculate_reward()
 
-        return 'next_state', 'reward', self.done(), 'info'
+        return next_state, 'reward', self.done(), 'info'
 
 
     def done(self):
         done=False
         # episode ends if time runs out or collision
-        self.deltaTime=self.end - self.start
         timeisUp = True if self.deltaTime>=self.episode_time else False
         if timeisUp: print('tic toc ... time is up')
         if self.client.simGetCollisionInfo().has_collided: print('Oh fiddlesticks, we just hit something...')
@@ -99,8 +106,47 @@ class Environment:
 
         return done
 
-    def reward(self):
-        reward=self.deltaTime
+
+    def get_observations(self):
+        self.responses= self.client.simGetImages([ airsim.ImageRequest("front_center", airsim.ImageType.DepthPlanar, pixels_as_float=True),
+                                          airsim.ImageRequest("front_center", airsim.ImageType.Scene, False, False),
+                                          airsim.ImageRequest("front_center", airsim.ImageType.Segmentation, False, False),
+                                          airsim.ImageRequest("bottom_center", airsim.ImageType.Segmentation, False, False), # for reward
+                                          airsim.ImageRequest("bottom_center", airsim.ImageType.DepthPlanar, pixels_as_float=True)]) # for reward
+
+    def next_state(self):
+        self.deltaTime=self.end - self.start
+        # convert to size 224x224 images
+        # get depth image and front camera
+        responses = self.get_observations()
+        self.df_gps.appendGPShistory(self.client.getMultirotorState().kinematics_estimated.position,
+                           self.client.getMultirotorState().kinematics_estimated.linear_velocity,
+                           0, time.time_ns(), self.vehicle_name)
+
+        depth=util.byte2np_Depth(self.responses[0])
+        seg=util.byte2np_Seg(self.responses[2])
+        # GPS needs to be added
+        new_state = self.state.copy()
+        new_state[0]=seg
+        new_state[1]=depth
+        new_state[2]=self.state[1]
+        new_state[3]=self.state[2]
+        self.state=new_state
+
+        return new_state
+
+    def Calculate_reward(self):
+
+        img_seg=util.byte2np_Seg(self.responses[3], Save=False, path='data',
+                                filename=f'Bottom_center_Seg_{self.episode}_{int(self.deltaTime*1000)}')
+        img_depth=util.byte2np_Depth(self.responses[4], Save=False, path='data',
+                                    filename='Bottom_center_DepthPlanarS', Normalize=False)
+        #print('Is the road below:', util.isRoadBelow(img_seg, self.sz, rng=10))
+        roadBelow=util.isRoadBelow(img_seg, self.sz, rng=10)
+        z_ht=util.Distance2Grnd(img_depth, self.sz, rng=10)
+        #print('Calculated Z height:',z_ht,'Actual Z Height:', self.client.getMultirotorState().kinematics_estimated.position.z_val)
+
+        reward=0
         if self.client.simGetCollisionInfo().has_collided: reward-=1000
 
         # reward for finding obstruction +100
@@ -114,36 +160,6 @@ class Environment:
         # penalize entering no fly zone
         return reward
 
-    def get_observations(self):
-        self.responses= self.client.simGetImages([ airsim.ImageRequest("front_center", airsim.ImageType.DepthPlanar, pixels_as_float=True),
-                                          airsim.ImageRequest("front_center", airsim.ImageType.Scene, False, False),
-                                          airsim.ImageRequest("front_center", airsim.ImageType.Segmentation, False, False),
-                                          airsim.ImageRequest("bottom_center", airsim.ImageType.Segmentation, False, False), # for reward
-                                          airsim.ImageRequest("bottom_center", airsim.ImageType.DepthPlanar, pixels_as_float=True)]) # for reward
-
-    def next_state(self):
-        # convert to size 224x224 images
-        # get depth image and front camera
-        responses = self.get_observations()
-        self.df_gps.appendGPShistory(self.client.getMultirotorState().kinematics_estimated.position,
-                           self.client.getMultirotorState().kinematics_estimated.linear_velocity,
-                           0, time.time_ns(), self.vehicle_name)
-        #print(self.df_gps.df.head())
-        deltaTime=self.end - self.start
-        img_depth=util.byte2np_Depth(self.responses[0], Save=True, path='data', filename='Front_center_DepthPlanarS')
-        img_rgb=util.byte2np_RGB(self.responses[1], Save=True, path='data', filename='Front_center_RGBS')
-        img_seg=util.byte2np_RGB(self.responses[2], Save=True, path='data', filename=f'Front_center_SegS')
-        #img_gps=self.df_gps.GPS2image(Save=False, path='data', filename='GPS')
-
-
-        # previous 3 graysacle image frames
-        # Depth of current frame
-        # update map images
-            # store positions, velocities, vehicle name, T/F Obstruction found
-            # Map to have no fly zones
-
-        # return stacked image frames to n-channel image
-        return 'state_'
 
     def interpret_action(self, action):
         """Interprete action"""
@@ -202,12 +218,21 @@ class Environment:
         df_mesh=pd.read_csv('data/meshes.csv', index_col=0)
         # turn off segmentation mesh for everything in neighborhood environment
         for mesh in df_mesh['0'].unique():
-            success=self.client.simSetSegmentationObjectID(mesh, 0, True);
-            #print(mesh, success)
-        #airsim.wait_key('Press any key to reset')
+            success=self.client.simSetSegmentationObjectID(mesh, 255, True);
+            #print(mesh)
+            #airsim.wait_key('Press any key to reset')
 
-        for i, mesh in enumerate(['grass', 'road', 'tree','stop', 'sphere', 'driveway','car', 'power']):
-            assert i<255, 'too many meshs'
+        Class2ID={'grass': 1, 'road':2, 'stop':4,
+                  'sphere': 5, 'driveway':6, 'car': 7, 'power': 8,
+                  'driveway':9, 'roof':30, 'wall': 11,
+                  'street':13, 'path': 14, 'pool': 15, 'fence': 11,
+                  'tree':3, 'birch': 3, 'oak': 3,'fir':3,
+                  'hedge':17,'garden':27,
+                  'cone': 16, 'porch': 18, 'house':19,  'chimney':20,  'garage':19,
+                  'outer':19, # house walls
+                  'lamp':20, 'monument':21, 'stairs':22, 'rock':23,
+                  'bench':24, 'veranda':18,  'quadrotor':26}
+        for mesh, ID in  Class2ID.items():
             #print(mesh,self.client.simGetSegmentationObjectID(f"{mesh}[\w]*"))
-            success=self.client.simSetSegmentationObjectID(f"{mesh}[\w]*", i+1, True);
-            print(mesh, ' is ', i+1, success)
+            success=self.client.simSetSegmentationObjectID(f"{mesh}[\w]*", ID, True);
+            # print(mesh, ' is ', ID, success)
