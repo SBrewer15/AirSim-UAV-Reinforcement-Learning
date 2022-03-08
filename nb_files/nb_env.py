@@ -10,14 +10,14 @@ import cv2
 import nb_files.nb_Utilities as util
 
 class Environment:
-    def __init__(self, vehicle_name,  home= (0,0,0), maxz=120, maxspeed=8.33, episode_time=9): # change episode_time to 900 seconds (15 minutes)
+    def __init__(self, vehicle_name,  home= (0,0,0), maxz=120, maxspeed=8.33, episode_time=9, sz=(224,224)): # change episode_time to 900 seconds (15 minutes)
         self.vehicle_name =vehicle_name
         self.home=home
         self.maxz=maxz
         self.maxspeed=maxspeed
         self.episode_time=episode_time
         self.reward=0
-        self.sz=(224,224)
+        self.sz=sz
 
     def StartTime(self, start, episode):
         self.start=start; self.end=start
@@ -52,14 +52,14 @@ class Environment:
         self.state=state
 
     def reset(self, weather= False, fog=0.0, rain=0.0, dust=0.0,
-                        snow=0.0, leaf=0.0, Roadwetness=0.0, wind=(0,0,0)):
+                    snow=0.0, leaf=0.0, Roadwetness=0.0, wind=(0,0,0)):
         self.addWeather(weather, fog, rain, dust, snow, leaf, Roadwetness, wind)
         self.client.reset()
         self.client.enableApiControl(True)
         self.client.armDisarm(True)
         self.client.takeoffAsync().join()
         # future add ignore collisions until drone is at home position
-        self.client.moveToPositionAsync(self.home[0], self.home[1], self.home[2], 5,
+        self.client.moveToPositionAsync(self.home[0], self.home[1], self.home[2], 15,
                                    vehicle_name=self.vehicle_name).join()
         print("Honey I'm home")
         self.client.hoverAsync(vehicle_name=self.vehicle_name).join()
@@ -67,34 +67,29 @@ class Environment:
         self.df_gps=util.GPShistory(self.client.getMultirotorState().kinematics_estimated.position,
                            self.client.getMultirotorState().kinematics_estimated.linear_velocity,
                            0, time.time_ns(), self.vehicle_name, self.sz, self.maxspeed)
-        time.sleep(2)
+        #time.sleep(2)
         self.initializeState()
         self.deltaTime=0
         return self.state
 
-    def get_position(self):
-        return self.client.getMultirotorState().kinematics_estimated.position
-    def get_velocity(self):
-        return self.client.getMultirotorState().kinematics_estimated.linear_velocity
+    def get_position(self): return self.client.getMultirotorState().kinematics_estimated.position
+    def get_velocity(self): return self.client.getMultirotorState().kinematics_estimated.linear_velocity
 
     def step(self, action):
-
         # convert actions to movement
-        quad_vel = self.client.getMultirotorState().kinematics_estimated.linear_velocity
         self.quad_offset = self.interpret_action(action)
         x_vel , y_vel, z_vel=self.governor()
-
-        self.client.moveByVelocityAsync(x_vel , y_vel, z_vel, 1 ).join() # movement interval needs to be understood
-        # add check to keep below max speed
-        #print( quad_state)
-        
-        # get images
+        self.client.moveByVelocityAsync(x_vel , y_vel, z_vel, 1).join() # movement interval needs to be understood
+        #time.sleep(1)
+        # get new images
         next_state=self.next_state()
-
+        self.DetectObstruction()
         reward=self.Calculate_reward()
+        self.df_gps.appendGPShistory(self.client.getMultirotorState().kinematics_estimated.position,
+                           self.client.getMultirotorState().kinematics_estimated.linear_velocity,
+                           reward, time.time_ns(), self.vehicle_name)
 
-        return next_state, 'reward', self.done(), 'info'
-
+        return next_state, reward, self.done(), 'info'
 
     def done(self):
         done=False
@@ -105,7 +100,6 @@ class Environment:
         if timeisUp or self.client.simGetCollisionInfo().has_collided: done = True
 
         return done
-
 
     def get_observations(self):
         self.responses= self.client.simGetImages([ airsim.ImageRequest("front_center", airsim.ImageType.DepthPlanar, pixels_as_float=True),
@@ -119,9 +113,7 @@ class Environment:
         # convert to size 224x224 images
         # get depth image and front camera
         responses = self.get_observations()
-        self.df_gps.appendGPShistory(self.client.getMultirotorState().kinematics_estimated.position,
-                           self.client.getMultirotorState().kinematics_estimated.linear_velocity,
-                           0, time.time_ns(), self.vehicle_name)
+
 
         depth=util.byte2np_Depth(self.responses[0])
         seg=util.byte2np_Seg(self.responses[2])
@@ -147,7 +139,16 @@ class Environment:
         #print('Calculated Z height:',z_ht,'Actual Z Height:', self.client.getMultirotorState().kinematics_estimated.position.z_val)
 
         reward=0
-        if self.client.simGetCollisionInfo().has_collided: reward-=1000
+        if self.client.simGetCollisionInfo().has_collided: reward+= -1000
+        if not roadBelow: reward+= -10
+        reward+=util.HghtReward(z_ht)
+
+        x_position=self.client.getMultirotorState().kinematics_estimated.position.x_val
+        y_position=self.client.getMultirotorState().kinematics_estimated.position.y_val
+        reward+=util.Penalty4Backtrack(self.df_gps.getDataframe(), self.vehicle_name,
+                                      dist=2, penalty=-3, x=x_position, y=y_position)
+
+        if self.obstructionDetected: reward+=100
 
         # reward for finding obstruction +100
             # convert found flag to True
@@ -156,7 +157,6 @@ class Environment:
             # Get distance between drone if less than 100 meters update dataframe
             # penalize duplicate locations
             # bonus for update with obstructions
-            # Method to prevent constant updating/ reward maximization of swarm
         # penalize entering no fly zone
         return reward
 
@@ -200,6 +200,8 @@ class Environment:
             z_vel=z_vel/rss*self.maxspeed
 
         return x_vel , y_vel, z_vel
+
+    def DetectObstruction(self): self.obstructionDetected= False
 
 
     def addWeather(self, weather= False, fog=0.0, rain=0.0, dust=0.0,

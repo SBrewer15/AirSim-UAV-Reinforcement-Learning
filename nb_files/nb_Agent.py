@@ -56,9 +56,9 @@ class DDQN(object):
 
         return states, actions, rewards, next_states, dones
 
-    def choose_action(self, observation):
+    def choose_action(self, state):
         if np.random.random() > self.epsilon:
-            state = T.tensor([observation],dtype=T.float).to(self.q_eval.device)
+            state = T.tensor([state],dtype=T.float).to(self.q_eval.device)
             actions = self.q_eval.forward(state)
             action = T.argmax(actions).item()
         else:
@@ -82,8 +82,8 @@ class DDQN(object):
                 child.p=self.dropout
 
     def increase_dropout(self):
-        if self.epsilon >= self.eps_min and self.dropout<=self.dropout_max:
-            self.dropout *= 1.01
+        if self.epsilon <= self.eps_min and self.dropout<=self.dropout_max:
+            self.dropout *= 1.001
         else: self.dropout
 
     def save_models(self):
@@ -95,7 +95,7 @@ class DDQN(object):
         self.q_next.load_checkpoint()
 
     def learn(self):
-        if self.memory.mem_cntr < self.batch_size:
+        if self.memory.memory_counter < self.batch_size:
             return
 
         self.q_eval.optimizer.zero_grad()
