@@ -17,20 +17,19 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name)
-        #self.dropout = dropout
-        #self.model = ModelMaker(arch='tf_mobilenetv3_small_075',
-        #                        input_channels=input_dims[0],
-        #                        num_outputs=n_actions, dropout=self.dropout)
+        self.dropout = dropout
+        self.model = ModelMaker(arch='tf_mobilenetv3_small_075',
+                                input_channels=input_dims[0],
+                                num_outputs=n_actions, dropout=self.dropout)
 
-        self.conv1 = nn.Conv2d(input_dims[0], 32, 8, stride=4)
-        self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
-        self.conv3 = nn.Conv2d(64, 64, 3, stride=1)
+        #self.conv1 = nn.Conv2d(input_dims[0], 32, 8, stride=4)
+        #self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
+        #self.conv3 = nn.Conv2d(64, 64, 3, stride=1)
 
-        fc_input_dims = self.calculate_conv_output_dims(input_dims)
+        #fc_input_dims = self.calculate_conv_output_dims(input_dims)
 
-        self.fc1 = nn.Linear(fc_input_dims, 512)
-        self.fc2 = nn.Linear(512, n_actions)
-
+        #self.fc1 = nn.Linear(fc_input_dims, 512)
+        #self.fc2 = nn.Linear(512, n_actions)
 
         self.optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=0.01)
         self.loss = nn.MSELoss()
@@ -45,14 +44,14 @@ class DQN(nn.Module):
         return int(np.prod(dims.size()))
 
     def forward(self, state):
-        #actions = self.model(state)
-        conv1 = F.relu(self.conv1(state))
-        conv2 = F.relu(self.conv2(conv1))
-        conv3 = F.relu(self.conv3(conv2))
-        conv_state = conv3.view(conv3.size()[0], -1)
+        actions = self.model(state)
+        #conv1 = F.relu(self.conv1(state))
+        #conv2 = F.relu(self.conv2(conv1))
+        #conv3 = F.relu(self.conv3(conv2))
+        #conv_state = conv3.view(conv3.size()[0], -1)
 
-        flat1 = F.relu(self.fc1(conv_state))
-        actions = self.fc2(flat1)
+        #flat1 = F.relu(self.fc1(conv_state))
+        #actions = self.fc2(flat1)
 
         return actions
 

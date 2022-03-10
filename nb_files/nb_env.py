@@ -10,7 +10,8 @@ import cv2
 import nb_files.nb_Utilities as util
 
 class Environment:
-    def __init__(self, vehicle_name,  home= (0,0,0), maxz=120, maxspeed=8.33, episode_time=9, sz=(224,224)): # change episode_time to 900 seconds (15 minutes)
+    def __init__(self, vehicle_name,  df_nofly, home= (0,0,0), maxz=120,
+                    maxspeed=8.33, episode_time=900, sz=(224,224)): # change episode_time to 900 seconds (15 minutes)
         self.vehicle_name =vehicle_name
         self.home=home
         self.maxz=maxz
@@ -18,6 +19,7 @@ class Environment:
         self.episode_time=episode_time
         self.reward=0
         self.sz=sz
+        self.df_nofly=df_nofly
 
     def StartTime(self, start, episode):
         self.start=start; self.end=start
@@ -43,11 +45,11 @@ class Environment:
         depth=util.byte2np_Depth(self.responses[0])
         seg=util.byte2np_Seg(self.responses[2])
         # GPS needs to be added
-        state = np.random.random_sample((4,h,w))
-        state[0]=seg
-        state[1]=depth
-        state[2]=depth
-        state[3]=depth
+        state = np.zeros((5,h,w))
+        state[0]=depth
+        state[1]=seg
+        state[2]=seg
+        state[3]=seg
 
         self.state=state
 
@@ -119,10 +121,13 @@ class Environment:
         seg=util.byte2np_Seg(self.responses[2])
         # GPS needs to be added
         new_state = self.state.copy()
-        new_state[0]=seg
-        new_state[1]=depth
+        new_state[0]=depth
+        new_state[1]=seg
         new_state[2]=self.state[1]
         new_state[3]=self.state[2]
+        x_position=self.client.getMultirotorState().kinematics_estimated.position.x_val
+        y_position=self.client.getMultirotorState().kinematics_estimated.position.y_val
+        new_state[4]=self.df_gps.GPS2image(x_position, y_position, self.df_nofly)
         self.state=new_state
 
         return new_state
@@ -135,7 +140,7 @@ class Environment:
                                     filename='Bottom_center_DepthPlanarS', Normalize=False)
         #print('Is the road below:', util.isRoadBelow(img_seg, self.sz, rng=10))
         roadBelow=util.isRoadBelow(img_seg, self.sz, rng=10)
-        z_ht=util.Distance2Grnd(img_depth, self.sz, rng=10)
+        z_ht=util.Distance2Grnd(img_depth, self.sz, rng=10) # max sensor distance=40meters
         #print('Calculated Z height:',z_ht,'Actual Z Height:', self.client.getMultirotorState().kinematics_estimated.position.z_val)
 
         reward=0
@@ -149,14 +154,8 @@ class Environment:
                                       dist=2, penalty=-3, x=x_position, y=y_position)
 
         if self.obstructionDetected: reward+=100
+        # Get distance between drone if less than 100 meters update dataframe
 
-        # reward for finding obstruction +100
-            # convert found flag to True
-        # reward for road and powerline follow needed
-        # Drone update to pandas?
-            # Get distance between drone if less than 100 meters update dataframe
-            # penalize duplicate locations
-            # bonus for update with obstructions
         # penalize entering no fly zone
         return reward
 
@@ -165,21 +164,13 @@ class Environment:
         """Interprete action"""
         scale= 2
         assert action in np.arange(0,7), 'action must be between 0-6'
-        if action == 0:
-            self.quad_offset = (0, 0, 0)
-        elif action == 1:
-            self.quad_offset = (scale, 0, 0)
-        elif action == 2:
-            self.quad_offset = (0, scale, 0)
-        elif action == 3:
-            self.quad_offset = (0, 0, scale)
-        elif action == 4:
-            self.quad_offset = (-scale, 0, 0)
-        elif action == 5:
-            self.quad_offset = (0, -scale, 0)
-        elif action == 6:
-            self.quad_offset = (0, 0, -scale)
-
+        if action == 0: self.quad_offset = (0, 0, 0)
+        elif action == 1: self.quad_offset = (scale, 0, 0)
+        elif action == 2: self.quad_offset = (0, scale, 0)
+        elif action == 3: self.quad_offset = (0, 0, scale)
+        elif action == 4: self.quad_offset = (-scale, 0, 0)
+        elif action == 5: self.quad_offset = (0, -scale, 0)
+        elif action == 6: self.quad_offset = (0, 0, -scale)
         return self.quad_offset
 
     def governor(self):

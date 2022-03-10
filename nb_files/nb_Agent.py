@@ -59,7 +59,11 @@ class DDQN(object):
     def choose_action(self, state):
         if np.random.random() > self.epsilon:
             state = T.tensor([state],dtype=T.float).to(self.q_eval.device)
+            # need to turn off batch norm and dropout for network evaluation (batch size = 1)
+            self.q_eval.eval()
             actions = self.q_eval.forward(state)
+            # need to turn on batch norm and dropout for network training
+            self.q_eval.train()
             action = T.argmax(actions).item()
         else:
             action = np.random.choice(self.action_space)
