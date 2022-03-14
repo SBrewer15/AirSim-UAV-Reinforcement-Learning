@@ -1,40 +1,57 @@
 # drone0.py
 import airsim
 import numpy as np
+import pandas as pd
 from nb_files.nb_env import Environment
 import nb_files.nb_Utilities as util
 from nb_files.nb_Agent import DDQN
 import time
 import os
+import datetime as dt
 
 util.set_seed(42)
+pd.options.display.float_format = "{:,.3f}".format
 
-N_episodes=1
-episode_time=900
+N_episodes=1000
+episode_time=20
 vehicle_name="Drone0"
 sz=(224,224)
-env=Environment(vehicle_name=vehicle_name, home=(15, -3, -7), maxz=120,
+env_name=f'Neighborhood_{episode_time}s'
+algo='DDQNAgent'
+
+df_nofly=pd.DataFrame([], columns=['x','y','radius']) #37.2, 50.9, 15], [175,60,20]
+
+env=Environment(vehicle_name=vehicle_name, df_nofly=df_nofly,
+                home=(15, -3, -30), maxz=120,
                 maxspeed=8.33,episode_time=episode_time, sz=sz)
 env.make_env()
 
 agent = DDQN(gamma=0.99, epsilon=1.0, lr=0.0001,
-             input_dims=((4,)+sz),
-             n_actions=7, mem_size=1000, eps_min=0.1,
-             batch_size=32, replace=10000, eps_dec=1e-5,
-             chkpt_dir='models/', algo='DDQNAgent',
-             env_name='Neighborhood')
+             input_dims=((5,)+sz),
+             n_actions=7, mem_size=10000, eps_min=0.1,
+             batch_size=256, replace=500, eps_dec=1e-3,
+             chkpt_dir='models/', algo=algo,
+             env_name=env_name)
 
-scores, eps_history, steps_array = [], [], []
-n_steps = 0
-load_checkpoint = False
-best_score = -np.inf
+# curiculum learning
+#agent.q_eval.load_previous_checkpoint('models/Neighborhood_DDQNAgent_q_eval')
+#agent.q_next.load_previous_checkpoint('models/Neighborhood_DDQNAgent_q_next')
+#print('Loaded Old Model')
 
+n_steps = 0; best_score = -np.inf
+df_summary=pd.DataFrame([], columns=['Episode', 'Score', 'Average Score', 'Best Score',
+                                     'steps', 'Model Saved', 'Epsilon', 'Dropout', 'Vehicle Name'])
 for episode in range(N_episodes):
     score = 0
     done=False
     state=env.reset()
 
-    np.save(f'data/FirstArray_{episode}', state)
+    #env.client.moveToPositionAsync(15, -3, -110, 5, vehicle_name=env.vehicle_name).join()
+    #env.client.hoverAsync(vehicle_name=env.vehicle_name).join()
+    #env.get_observations()
+    #print('Total Reward', env.Calculate_reward())
+
+    #np.save(f'data/FirstArray_{episode}', state)
     env.StartTime(time.time(), episode)
     while done==False:
 
@@ -42,28 +59,33 @@ for episode in range(N_episodes):
 
         next_state, reward, done, info = env.step(action)
         score += reward
-        print(action, score)
-        if not load_checkpoint:
-            agent.store_transition(state, action,reward, next_state, int(done))
-            agent.learn()
+        #print(action, score)
+        agent.store_transition(state, action,reward, next_state, int(done))
+        agent.learn()
+
         state= next_state
         n_steps += 1
-        scores.append(score)
-        steps_array.append(n_steps)
-
-        avg_score = np.mean(scores[-100:])
-
-        if avg_score > best_score:
-            if not load_checkpoint:
-                agent.save_models()
-            best_score = avg_score
 
 
-
-        if done:
-            np.save(f'data/LastArray_{episode}', next_state)
+        #if done: #np.save(f'data/LastArray_{episode}', next_state)
         env.GetTime(time.time())
-    print(f'Episode Number {episode+1} Complete. Final Score {score}, Number of steps taken: {n_steps}')
-    env.df_gps.saveGPS2csv(f'data/gps_data_{vehicle_name}_episode{episode+1}_DDQN.csv')
-    eps_history.append(agent.epsilon)
-    print(n_steps)
+    ## episode has ended
+    avg_score = np.mean(df_summary.loc[df_summary.index[-49:],'Score'].to_list()+[score])
+
+    df_summary.loc[len(df_summary)]= [episode, score, avg_score, best_score, n_steps,
+                                      True if avg_score > best_score else False,
+                                      agent.epsilon, agent.dropout,vehicle_name]
+
+    # Save Model
+    if avg_score > best_score:
+        agent.save_models()
+        best_score = avg_score
+
+
+    print(df_summary.tail(5).T)
+
+    # Save Stuff
+    env.df_gps.saveGPS2csv(f'data/gps_data_{vehicle_name}_episode{episode}_{algo}.csv')
+    filename=f'{env_name}_{algo}_{dt.datetime.now().strftime("%Y-%m-%d")}'
+    df_summary.to_csv(f'data/{filename}.csv', index=False)
+    util.plot_Reward(df_summary, 'plots', filename)
