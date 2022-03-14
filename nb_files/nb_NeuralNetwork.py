@@ -81,10 +81,10 @@ def ModelMaker(arch='tf_mobilenetv3_small_075', input_channels = 4, num_outputs 
     model=nn.Sequential(body,
         nn.AdaptiveAvgPool2d(1),
         nn.Flatten(),
-        nn.BatchNorm1d(num_in_features), # nn.LayerNorm may be better see: lesson 31 in Actor/Critic Phil Tabor course
+        #nn.BatchNorm1d(num_in_features), # nn.LayerNorm may be better see: lesson 31 in Actor/Critic Phil Tabor course
         nn.Linear(in_features=num_in_features,out_features=512, bias=False),
         nn.ReLU(),
-        nn.BatchNorm1d(512),
+        #nn.BatchNorm1d(512),
         nn.Dropout(dropout),
         nn.Linear(in_features=512, out_features=num_outputs, bias=False)
     )

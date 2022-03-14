@@ -6,10 +6,13 @@
 import os
 import torch as T
 import numpy as np
+import math
 import pandas as pd
 import cv2
+import math
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 class imagenetStats:
     def __init__(self, UseInception=True):
@@ -131,66 +134,111 @@ class GPShistory:
     def loadGPScsv(self, filename):
         self.df=pd.read_csv(filename)
 
-    def GPS2image(self, Save=False, path='data', filename='Test'):
+    def getDataframe(self): return self.df
+
+    def GPS2image(self, x_cntr, y_cntr,z_cntr, df_nofly=None):
         df=self.df.copy()
-        # no fly zones still need to be implimented
-        df['VELOCITY']=np.sqrt(df['x_velocity']*df['x_velocity']+df['y_velocity']*df['y_velocity']+df['z_velocity']*df['z_velocity'])
+        maxspeed=self.maxspeed
+        vehicle_name=self.vehicle_name
+        sz=self.sz
+        rad=100 # meters
         # ensures the current vehicle is plotted last
-        vehicle_lst=list(df[df['vehicle_name']!=self.vehicle_name]['vehicle_name'].dropna().unique())+[self.vehicle_name]
+        vehicle_lst=list(df[df['vehicle_name']!=vehicle_name]['vehicle_name'].dropna().unique())+[vehicle_name]
+
         #################################### Plotting #########################################################
         fig, ax = plt.subplots(figsize=(5,5))
-        # add reward colors
-        frame=df[df['Reward']>0].copy()
-        plt.plot(frame['x_position'], frame['y_position'], marker='o', color="green", ms=12,linestyle='None')
-        frame=df[df['Reward']<0].copy()
-        plt.plot(frame['x_position'], frame['y_position'], marker='o', color="red", ms=8,linestyle='None')
+        ax=plt.gca(); ax.set_axis_off()
+        ax.add_patch(patches.Rectangle((x_cntr-rad,y_cntr-rad+1), width=rad*2-1, height=rad*2-1, ec='k', facecolor='#b3b3b3'))
+        ax.add_patch(plt.Circle((x_cntr,y_cntr), rad, ec='k', facecolor='white'))
+        plt.xlim(x_cntr-rad,x_cntr+rad); plt.ylim(y_cntr-rad,y_cntr+rad)
+        if df_nofly is not None: # plot the no fly zone
+            for idx in df_nofly.index:
+                ax.add_patch(plt.Circle((df_nofly.loc[idx,'x'], df_nofly.loc[idx,'y']), df_nofly.loc[idx,'radius'],
+                                    hatch='xxx',facecolor='grey'))
 
+        # Plot reward and history of drones
         for v_name in vehicle_lst:
             frame=df[df['vehicle_name']==v_name].copy()
-            if v_name==self.vehicle_name:
-                clr='YlOrRd'; rad=20
-                x_cntr=frame.loc[frame.index[-1],'x_position']
-                y_cntr=frame.loc[frame.index[-1],'y_position']
-                # plt.plot(frame['x_position'], frame['y_position'], color='k', lw=6) # makes a black edge to line (not working in linux)
-                # set the most recent position to the center of plot and shows 20 meters in all directions
-                plt.xlim(x_cntr-rad,x_cntr+rad); plt.ylim(y_cntr-rad,y_cntr+rad)
+            # set the most recent position to the center of plot and shows 100 meters in all directions
+            lc = plotcolorline(frame['x_position'], frame['y_position'],frame['Reward'],
+                               cmap='Greys_r', norm=plt.Normalize(-100, 20), linewidth=4,alpha=1.0)
 
-            else: clr= 'Greys'
-            # line plot where color is velocity
-            lc = plotcolorline(frame['x_position'], frame['y_position'],frame['VELOCITY'],
-                           cmap=clr, norm=plt.Normalize(-1, self.maxspeed), linewidth=4,alpha=1.0)
-            #Last Location
-            plt.plot(frame.loc[frame.index[-1],'x_position'], frame.loc[frame.index[-1],'y_position']
-                     , marker='P', color="k", ms=12, markeredgecolor='white',linestyle='None')
+        # ensure current locations are on top
+        for v_name in vehicle_lst:
+            frame=df[df['vehicle_name']==v_name].copy()
+            if v_name==vehicle_name:
+                #honey I'm home
+                plt.plot(frame.loc[frame.index[0],'x_position'], frame.loc[frame.index[0],'y_position']
+                         , marker='o', color="gray", ms=8, markeredgecolor='black',linestyle='None')
+                # Current Location
+                plt.plot(x_cntr, y_cntr ,marker='P', color='k', lw=6, ms=16, markeredgecolor='white',linestyle='None',markeredgewidth=2)
 
-            #honey I'm home
-            plt.plot(frame.loc[frame.index[0],'x_position'], frame.loc[frame.index[0],'y_position']
-                     , marker='o', color="gray", ms=8, markeredgecolor='black',linestyle='None')
+            else:
+                #Last Location of other drones
+                plt.plot(frame.loc[frame.index[-1],'x_position'], frame.loc[frame.index[-1],'y_position']
+                         , marker='*', color="white", ms=14, markeredgecolor='k', linestyle='None', markeredgewidth=2)
 
+        ax.text(-85,85, f'{int(abs(z_cntr))}',  fontsize = 18)
         plt.tight_layout()
-        ax=plt.gca(); ax.set_axis_off()
-        ax.add_patch(patches.Rectangle((x_cntr-rad,y_cntr-rad+1), width=rad*2-1, height=rad*2-1, ec='k', facecolor=(0,0,0,0)))
         fig.canvas.draw()
 
         # plot to image array
         arr = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
         arr = arr.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        arr = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+        # this padding only works for 224x224 images
+        arr=cv2.resize(arr[9:-11, 9:-11], (sz), interpolation=cv2.INTER_CUBIC)
+        # close the figure
         plt.close(fig)
         plt.figure().clear()
         plt.close()
         plt.cla()
         plt.clf()
-        # this padding only works for 224x224 images
-        arr=cv2.resize(arr[11:arr.shape[0]-28,38:arr.shape[0]-10], (self.sz), interpolation=cv2.INTER_CUBIC)
-        img=arr.copy()
-        arr=arr.reshape((3,)+self.sz)
-        if Save:
-            filename = os.path.join(path, filename)
-            np.save(filename, arr)
-            fig = plt.figure()
-            plt.imshow(img)
-            fig.savefig(filename+'.png')
-            plt.close(fig)
 
         return arr
+
+
+def Penalty4Backtrack(df_gps, vehicle_name, x,y, dist=2, penalty=-3):
+    ''' given gps dataframe x,y on most recent index
+        calcuates the distance to previous x,y positions
+        returns the reward for every position within dist
+    '''
+    df_tmp=df_gps.copy()
+    df_tmp['Distance2Drone']=np.sqrt((x-df_tmp['x_position'])**2+ (y-df_tmp['y_position'])**2)
+    return len(df_tmp[(df_tmp['Distance2Drone']<dist)]) * penalty
+
+def HghtReward(z):
+    if z>=20:
+        return -math.exp(z**0.5)/300
+    else:
+        return -1/math.exp(z**0.5-10)/100
+
+
+def DroneDistanceReward(d):
+    if d>=50:
+        return  -math.exp(10-(-d+100)**0.5)/100
+    else:
+        return (-math.exp(-d**0.5+10))/100
+
+def plot_Reward(df_summary, path, filename, show=False):
+    fig=plt.figure(figsize=(20, 12), dpi=80, facecolor='w', edgecolor='k')
+    filename = os.path.join(path, f'{filename}.png')
+    plt.scatter(df_summary['Episode'], df_summary['Score'], alpha=0.5, label='Episode Score')
+    plt.plot(df_summary['Episode'], df_summary['Average Score'], color='orange', label='Running Average')
+    plt.ylabel('Reward')
+    plt.xlabel('Episodes')
+    plt.legend(loc=2)
+
+    plt.ylim(-1000,10)
+    plt.grid()
+
+
+    plt.savefig(filename)
+    if show: plt.show()
+
+    plt.close(fig)
+    plt.figure().clear()
+    plt.close()
+    plt.cla()
+    plt.clf()
 

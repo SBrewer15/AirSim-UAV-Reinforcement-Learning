@@ -36,12 +36,12 @@ class DQN(nn.Module):
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
         self.to(self.device)
 
-    def calculate_conv_output_dims(self, input_dims):
-        state = T.zeros(1, *input_dims)
-        dims = self.conv1(state)
-        dims = self.conv2(dims)
-        dims = self.conv3(dims)
-        return int(np.prod(dims.size()))
+    #def calculate_conv_output_dims(self, input_dims):
+    #    state = T.zeros(1, *input_dims)
+    #    dims = self.conv1(state)
+    #    dims = self.conv2(dims)
+    #    dims = self.conv3(dims)
+    #    return int(np.prod(dims.size()))
 
     def forward(self, state):
         actions = self.model(state)
@@ -62,3 +62,7 @@ class DQN(nn.Module):
     def load_checkpoint(self):
         print('... loading checkpoint ...')
         self.load_state_dict(T.load(self.checkpoint_file))
+
+    def load_previous_checkpoint(self, previous_checkpoint):
+        print('... loading checkpoint ...')
+        self.load_state_dict(T.load(previous_checkpoint))
