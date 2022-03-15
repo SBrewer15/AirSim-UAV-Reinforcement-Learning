@@ -27,6 +27,9 @@ class Environment:
 
     def GetTime(self, end): self.end=end
 
+    def ChngEpisodeLnght(self, new_episode_time):
+        self.episode_time=new_episode_time
+
     def make_env(self):
          # connect to the simulator
         self.client=airsim.MultirotorClient()
@@ -100,9 +103,9 @@ class Environment:
                            self.client.getMultirotorState().kinematics_estimated.linear_velocity,
                            reward, time.time_ns(), self.vehicle_name)
 
-        return next_state, reward, self.done(), 'info'
+        return next_state, reward, self.done(reward), 'info'
 
-    def done(self):
+    def done(self, reward):
         done=False
         # episode ends if time runs out or collision
         timeisUp = True if self.deltaTime>=self.episode_time else False
@@ -110,6 +113,7 @@ class Environment:
         if self.client.simGetCollisionInfo().has_collided: print('Oh fiddlesticks, we just hit something...')
         if timeisUp or self.client.simGetCollisionInfo().has_collided: done = True
         # adif the drone is too far from home
+        if reward <-5000: done = True# if the reward is too bad kill the episode
         return done
 
     def get_observations(self):
@@ -158,7 +162,7 @@ class Environment:
         # collision
         if self.client.simGetCollisionInfo().has_collided: reward+= -5000
 
-        if not roadBelow: reward+= -100
+        if not roadBelow: reward+= -100 #change this to how much of the road is below
             #print('No Road Below, -100')
 
         reward+=max(util.HghtReward(z_ht), -1000)
@@ -168,10 +172,10 @@ class Environment:
         x_position=self.client.getMultirotorState().kinematics_estimated.position.x_val
         y_position=self.client.getMultirotorState().kinematics_estimated.position.y_val
         backtrack=max(util.Penalty4Backtrack(self.df_gps.getDataframe(), self.vehicle_name,
-                                      dist=2, penalty=-10, x=x_position, y=y_position), -100)
+                                      dist=20, penalty=-10, x=x_position, y=y_position), -500)
         reward+=backtrack
         #print(f'Penalty for backtracking {backtrack}')
-        #if self.obstructionDetected: reward+=100
+        if self.obstructionDetected: reward+=100
 
         # Distance between drone if less than 100 meters update dataframe
         # penalize drone distance
