@@ -47,13 +47,13 @@ class Environment:
         responses = self.get_observations()
         depth=util.byte2np_Depth(self.responses[0])
         seg=util.byte2np_Seg(self.responses[2])
-        # GPS needs to be added
+
         state = np.zeros((5,h,w))
         state[0]=depth
         state[1]=seg
         state[2]=seg
         state[3]=seg
-
+        # GPS state[4]= zeros
         self.state=state
 
     def reset(self, weather= False, fog=0.0, rain=0.0, dust=0.0,
@@ -75,12 +75,14 @@ class Environment:
         #time.sleep(2)
         self.initializeState()
         self.deltaTime=0
-        return self.state
+        return (self.state-0.5)/0.5 # imagenet normalization for inception style network
 
     def get_position(self): return self.client.getMultirotorState().kinematics_estimated.position
     def get_velocity(self): return self.client.getMultirotorState().kinematics_estimated.linear_velocity
 
-    def step(self, action):
+    def step(self, action, drone_pos_dict=None, drone_gps_dict=None):
+        self.drone_pos_dict=drone_pos_dict
+        self.drone_gps_dict=drone_gps_dict
         # convert actions to movement
         self.quad_offset = self.interpret_action(action)
         #x_vel , y_vel, z_vel=self.governor()
@@ -90,7 +92,7 @@ class Environment:
         z_pos = self.client.getMultirotorState().kinematics_estimated.position.z_val
 
         self.client.moveToPositionAsync(x_pos+self.quad_offset[0], y_pos+self.quad_offset[1],
-                                        min(z_pos+self.quad_offset[2], self.maxz), min(5, self.maxspeed),
+                                        min(min(z_pos+self.quad_offset[2], self.maxz), -1), min(5, self.maxspeed),
                                         vehicle_name=self.vehicle_name).join()
 
         self.client.hoverAsync(vehicle_name=self.vehicle_name).join()
@@ -102,6 +104,20 @@ class Environment:
         self.df_gps.appendGPShistory(self.client.getMultirotorState().kinematics_estimated.position,
                            self.client.getMultirotorState().kinematics_estimated.linear_velocity,
                            reward, time.time_ns(), self.vehicle_name)
+
+        # Distance between drone if less than 100 meters update dataframe
+        if drone_gps_dict is not None:
+            for other_drone in drone_gps_dict.keys():
+                if other_drone == self.vehicle_name: continue
+                x_pos=(self.drone_pos_dict[self.vehicle_name].x_val-self.drone_pos_dict[other_drone].x_val)
+                y_pos=(self.drone_pos_dict[self.vehicle_name].y_val-self.drone_pos_dict[other_drone].y_val)
+                z_pos=(self.drone_pos_dict[self.vehicle_name].z_val-self.drone_pos_dict[other_drone].z_val)
+                rss=math.sqrt(x_pos*x_pos+y_pos*y_pos+z_pos*z_pos)
+                if rss<=100:
+                    # this isn't the most effiecent way to do this
+                    self.df_gps.df=self.df_gps.df.append(self.drone_gps_dict[other_drone])
+                    self.df_gps.df.drop_duplicates(inplace=True)
+                    self.df_gps.df.reset_index(inplace=True, drop=True)
 
         return next_state, reward, self.done(reward), 'info'
 
@@ -145,7 +161,7 @@ class Environment:
         new_state[4]=self.df_gps.GPS2image(x_position, y_position,z_position, self.df_nofly)
         self.state=new_state
 
-        return new_state
+        return (new_state-0.5)/0.5 # imagenet normalization for inception style network
 
     def Calculate_reward(self):
 
@@ -153,6 +169,10 @@ class Environment:
                                 #filename=f'Bottom_center_Seg_{self.episode}_{int(self.deltaTime*1000)}')
         img_depth=util.byte2np_Depth(self.responses[4], Normalize=False)#, Save=False, path='data',
                                     #filename='Bottom_center_DepthPlanarS')
+
+        x_position=self.client.getMultirotorState().kinematics_estimated.position.x_val
+        y_position=self.client.getMultirotorState().kinematics_estimated.position.y_val
+        z_position=self.client.getMultirotorState().kinematics_estimated.position.z_val
         #print('Is the road below:', util.isRoadBelow(img_seg, self.sz, rng=10))
         roadBelow=util.isRoadBelow(img_seg, self.sz, rng=10)
         z_ht=util.Distance2Grnd(img_depth, self.sz, rng=10) # max sensor distance=40meters
@@ -167,20 +187,40 @@ class Environment:
 
         reward+=max(util.HghtReward(z_ht), -1000)
         #print(f'Height and reward: {z_ht}, {max(util.HghtReward(z_ht), -1000)}')
-
         # back tracking
-        x_position=self.client.getMultirotorState().kinematics_estimated.position.x_val
-        y_position=self.client.getMultirotorState().kinematics_estimated.position.y_val
-        backtrack=max(util.Penalty4Backtrack(self.df_gps.getDataframe(), self.vehicle_name,
+
+        backtrack=max(util.Penalty4Backtrack(self.df_gps.getDataframe(), drone_dict=self.drone_gps_dict,
                                       dist=20, penalty=-10, x=x_position, y=y_position), -500)
         reward+=backtrack
         #print(f'Penalty for backtracking {backtrack}')
         if self.obstructionDetected: reward+=100
 
-        # Distance between drone if less than 100 meters update dataframe
-        # penalize drone distance
+        # penalize drone distance from one another
+        if self.drone_pos_dict is not None:
+            for other_drone in self.drone_pos_dict.keys():
+                if other_drone == self.vehicle_name: continue
+                x_pos=(self.drone_pos_dict[self.vehicle_name].x_val-self.drone_pos_dict[other_drone].x_val)
+                y_pos=(self.drone_pos_dict[self.vehicle_name].y_val-self.drone_pos_dict[other_drone].y_val)
+                z_pos=(self.drone_pos_dict[self.vehicle_name].z_val-self.drone_pos_dict[other_drone].z_val)
+
+                rss=math.sqrt(x_pos*x_pos+y_pos*y_pos+z_pos*z_pos)
+                reward+=util.DroneDistanceReward(rss)
+
         # penalize entering no fly zone
+        if len(self.df_nofly)>0:
+            for idx in self.df_nofly.index:
+                x_pos=x_position-self.df_nofly.loc[idx,'x']
+                y_pos=y_position-self.df_nofly.loc[idx,'y']
+                rss=math.sqrt(x_pos*x_pos+y_pos*y_pos)
+                reward+=util.NoFlyZoneReward(rss-self.df_nofly.loc[idx,'radius'])
+
         # penalize distance from home if greater than 5km
+        x_pos=x_position-self.home[0]
+        y_pos=y_position-self.home[1]
+        z_pos=z_position-self.home[2]
+        rss=math.sqrt(x_pos*x_pos+y_pos*y_pos+z_pos*z_pos)
+        if rss>=5000: reward+=-4000
+
         return reward
 
 

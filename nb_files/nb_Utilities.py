@@ -13,6 +13,12 @@ import math
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import itertools
+
+def draw_outline(o, lw, foreground='black'):
+    import matplotlib.patheffects as patheffects
+    o.set_path_effects([patheffects.Stroke(
+        linewidth=lw, foreground=foreground), patheffects.Normal()])
 
 class imagenetStats:
     def __init__(self, UseInception=True):
@@ -198,27 +204,38 @@ class GPShistory:
         return arr
 
 
-def Penalty4Backtrack(df_gps, vehicle_name, x,y, dist=2, penalty=-3):
+def Penalty4Backtrack(df_gps, x,y, dist=20, penalty=-3, drone_dict=None):
     ''' given gps dataframe x,y on most recent index
         calcuates the distance to previous x,y positions
         returns the reward for every position within dist
     '''
     df_tmp=df_gps.copy()
-    df_tmp['Distance2Drone']=np.sqrt((x-df_tmp['x_position'])**2+ (y-df_tmp['y_position'])**2)
-    return len(df_tmp[(df_tmp['Distance2Drone']<dist)]) * penalty
+    if drone_dict is not None:
+        idx2ignore=list(itertools.chain(*[list(df_tmp[df_tmp['vehicle_name']==vehicle_name].index[-4:])
+                       for vehicle_name in drone_dict.keys()]))
+    else: idx2ignore= list(df_tmp.index[-4:])
 
-def HghtReward(z):
-    if z>=20:
-        return -math.exp(z**0.5)/300
-    else:
-        return -1/math.exp(z**0.5-10)/100
+    df_tmp['Distance2Drone']=np.sqrt((x-df_tmp['x_position'])**2+ (y-df_tmp['y_position'])**2)
+    return len(df_tmp[(df_tmp['Distance2Drone']<dist)&(~df_tmp.index.isin(idx2ignore))]) * penalty
 
 
 def DroneDistanceReward(d):
     if d>=50:
         return  -math.exp(10-(-d+100)**0.5)/100
     else:
-        return (-math.exp(-d**0.5+10))/100
+        return (-math.exp(-d**0.5+9))/100
+
+
+def NoFlyZoneReward(d):
+    if d<0: return -4000
+    else: return max((-math.exp(-d**0.7+10))/60, -4000)
+
+def HghtReward(z):
+    if z>=31:
+        return -math.exp(z**0.5)/300
+    else:
+        return -1/math.exp(z**0.5-10)/100
+
 
 def plot_Reward(df_summary, path, filename, show=False):
     fig=plt.figure(figsize=(20, 12), dpi=80, facecolor='w', edgecolor='k')
