@@ -35,11 +35,87 @@
   "Vehicles": {
     "Drone0": {
       "VehicleType": "SimpleFlight",
-      "X": 0, "Y": 0, "Z": 0, "Yaw": 0
+      "X": 0, "Y": 0, "Z": 0, "Yaw": 0,
+      "Sensors": {
+	  "DistanceFront_Drn0":{
+	     "SensorType": 5,
+	     "Enabled": true,
+	     "X": 90, "Y":0.01, "Z":0,
+	     "Yaw": 0, "Pitch": 0, "Roll": 0,
+	     "MinDistance": 0.5,
+	     "MaxDistance": 100,
+	     "DrawDebugPoints": true
+	  },
+	  "DistanceRight_Drn0":{
+             "SensorType": 5,
+             "Enabled": true,
+             "X": 0.01, "Y":0, "Z":0,
+             "Yaw": 0, "Pitch": 0, "Roll": 0,
+             "MinDistance": 0.5,
+             "MaxDistance": 100,
+             "DrawDebugPoints": true
+          },
+	  "DistanceBack_Drn0":{
+             "SensorType": 5,
+             "Enabled": true,
+             "X": 0, "Y":-0.01, "Z":0,
+             "Yaw": 270, "Pitch": 0, "Roll": 0,
+             "MinDistance": 0.5,
+             "MaxDistance": 100,
+             "DrawDebugPoints": true
+          },
+	  "DistanceLeft_Drn0":{
+             "SensorType": 5,
+             "Enabled": true,
+             "X": -0.01, "Y":0, "Z":0,
+             "Yaw": 180, "Pitch": 0, "Roll": 0,
+             "MinDistance": 0.5,
+             "MaxDistance": 100,
+             "DrawDebugPoints": true
+          }
+       }
     },
      "Drone1": {
       "VehicleType": "SimpleFlight",
-      "X": 2, "Y": 1, "Z": 0, "Yaw": 0
+      "X": 2, "Y": 1, "Z": 0, "Yaw": 0,
+       "Sensors": {
+	  "DistanceFront_Drn1":{
+	     "SensorType": 5,
+	     "Enabled": true,
+	     "X": 90, "Y":0.01, "Z":0,
+	     "Yaw": 0, "Pitch": 0, "Roll": 0,
+	     "MinDistance": 0.5,
+	     "MaxDistance": 100,
+	     "DrawDebugPoints": true
+	  },
+	  "DistanceRight_Drn1":{
+             "SensorType": 5,
+             "Enabled": true,
+             "X": 0.01, "Y":0, "Z":0,
+             "Yaw": 0, "Pitch": 0, "Roll": 0,
+             "MinDistance": 0.5,
+             "MaxDistance": 100,
+             "DrawDebugPoints": true
+          },
+	  "DistanceBack_Drn1":{
+             "SensorType": 5,
+             "Enabled": true,
+             "X": 0, "Y":-0.01, "Z":0,
+             "Yaw": 270, "Pitch": 0, "Roll": 0,
+             "MinDistance": 0.5,
+             "MaxDistance": 100,
+             "DrawDebugPoints": true
+          },
+	  "DistanceLeft_Drn1":{
+             "SensorType": 5,
+             "Enabled": true,
+             "X": -0.01, "Y":0, "Z":0,
+             "Yaw": 180, "Pitch": 0, "Roll": 0,
+             "MinDistance": 0.5,
+             "MaxDistance": 100,
+             "DrawDebugPoints": true
+          }
+       }
     }
   }
 }
