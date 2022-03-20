@@ -15,11 +15,6 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import itertools
 
-def draw_outline(o, lw, foreground='black'):
-    import matplotlib.patheffects as patheffects
-    o.set_path_effects([patheffects.Stroke(
-        linewidth=lw, foreground=foreground), patheffects.Normal()])
-
 class imagenetStats:
     def __init__(self, UseInception=True):
         self.UseInception=UseInception
@@ -184,7 +179,7 @@ class GPShistory:
                 plt.plot(frame.loc[frame.index[-1],'x_position'], frame.loc[frame.index[-1],'y_position']
                          , marker='*', color="white", ms=14, markeredgecolor='k', linestyle='None', markeredgewidth=2)
 
-        ax.text(-85,85, f'{int(abs(z_cntr))}',  fontsize = 18)
+        #ax.text(-85,85, f'{int(abs(z_cntr))}',  fontsize = 18)
         plt.tight_layout()
         fig.canvas.draw()
 

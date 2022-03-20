@@ -91,8 +91,14 @@ class Environment:
         y_pos = self.client.getMultirotorState().kinematics_estimated.position.y_val
         z_pos = self.client.getMultirotorState().kinematics_estimated.position.z_val
 
+        # get height below to limit crash landings
+        img_depth=util.byte2np_Depth(self.responses[4], Normalize=False)#, Save=False, path='data',filename='Bottom_center_DepthPlanarS')
+        z_ht=util.Distance2Grnd(img_depth, self.sz, rng=10) # max sensor distance=40meters
+        if z_ht<8: self.quad_offset=(self.quad_offset[0], self.quad_offset[1], 0)
+
         self.client.moveToPositionAsync(x_pos+self.quad_offset[0], y_pos+self.quad_offset[1],
-                                        min(min(z_pos+self.quad_offset[2], self.maxz), -1), min(5, self.maxspeed),
+                                        min(min(z_pos+self.quad_offset[2], self.maxz), -1), # z is negative
+                                        min(5, self.maxspeed),
                                         vehicle_name=self.vehicle_name).join()
 
         self.client.hoverAsync(vehicle_name=self.vehicle_name).join()
@@ -100,7 +106,7 @@ class Environment:
         # get new images
         next_state=self.next_state()
         self.DetectObstruction()
-        reward=self.Calculate_reward()
+        reward=self.Calculate_reward(z_ht)
         self.df_gps.appendGPShistory(self.client.getMultirotorState().kinematics_estimated.position,
                            self.client.getMultirotorState().kinematics_estimated.linear_velocity,
                            reward, time.time_ns(), self.vehicle_name)
@@ -126,7 +132,9 @@ class Environment:
         # episode ends if time runs out or collision
         timeisUp = True if self.deltaTime>=self.episode_time else False
         if timeisUp: print('tic toc ... time is up')
-        if self.client.simGetCollisionInfo().has_collided: print('Oh fiddlesticks, we just hit something...')
+        if self.client.simGetCollisionInfo().has_collided:
+            print('Oh fiddlesticks, we just hit something...')
+            self.client.reset()
         if timeisUp or self.client.simGetCollisionInfo().has_collided: done = True
         # adif the drone is too far from home
         if reward <-5000: done = True# if the reward is too bad kill the episode
@@ -163,24 +171,22 @@ class Environment:
 
         return (new_state-0.5)/0.5 # imagenet normalization for inception style network
 
-    def Calculate_reward(self):
+    def Calculate_reward(self, z_ht):
 
         img_seg=util.byte2np_Seg(self.responses[3])#, Save=False, path='data',
                                 #filename=f'Bottom_center_Seg_{self.episode}_{int(self.deltaTime*1000)}')
-        img_depth=util.byte2np_Depth(self.responses[4], Normalize=False)#, Save=False, path='data',
-                                    #filename='Bottom_center_DepthPlanarS')
 
         x_position=self.client.getMultirotorState().kinematics_estimated.position.x_val
         y_position=self.client.getMultirotorState().kinematics_estimated.position.y_val
         z_position=self.client.getMultirotorState().kinematics_estimated.position.z_val
         #print('Is the road below:', util.isRoadBelow(img_seg, self.sz, rng=10))
         roadBelow=util.isRoadBelow(img_seg, self.sz, rng=10)
-        z_ht=util.Distance2Grnd(img_depth, self.sz, rng=10) # max sensor distance=40meters
+
         #print('Calculated Z height:',z_ht,'Actual Z Height:', self.client.getMultirotorState().kinematics_estimated.position.z_val)
 
         reward=0
         # collision
-        if self.client.simGetCollisionInfo().has_collided: reward+= -5000
+        if self.client.simGetCollisionInfo().has_collided: reward+= -10000
 
         if not roadBelow: reward+= -100 #change this to how much of the road is below
             #print('No Road Below, -100')
