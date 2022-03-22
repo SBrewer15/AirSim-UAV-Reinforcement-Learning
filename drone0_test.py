@@ -31,20 +31,21 @@ env.make_env()
 
 
 agent = DDQN(gamma=0.99, epsilon=0.0, lr=0.0001,
-             input_dims=((5,)+sz),
+             input_dims=((3,)+sz),
              n_actions=7, mem_size=5000, eps_min=0.0,
              batch_size=256, replace=500, eps_dec=1e-4,
              chkpt_dir='models/', algo=algo,
              env_name=env_name)
 
-load_name='Neighborhood_900s_DDQNAgent_2022-03-20'
+load_name='Neighborhood_600s_DDQNAgent_2022-03-21'
 agent.q_eval.load_previous_checkpoint(f'models/{load_name}_q_next')
 agent.q_next.load_previous_checkpoint(f'models/{load_name}_q_next')
 
 
-#env.client.moveToPositionAsync(15, -3, -110, 5, vehicle_name=env.vehicle_name).join()
+#env.client.moveToPositionAsync(15, -3, -30, 5, vehicle_name=env.vehicle_name).join()
 #env.client.hoverAsync(vehicle_name=env.vehicle_name).join()
-
+#env.get_observations()
+#img_seg=util.byte2np_Seg(env.responses[3], Save=True, path='data', filename=f'Bottom_center_Seg_z30')
 
 score = 0; done=False; n_steps = 0; episode=0
 
