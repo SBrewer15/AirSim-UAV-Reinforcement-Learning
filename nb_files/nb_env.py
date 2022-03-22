@@ -1,5 +1,4 @@
 
-
 import airsim
 import os
 import numpy as np
@@ -20,12 +19,15 @@ class Environment:
         self.reward=0
         self.sz=sz
         self.df_nofly=df_nofly
+        self.vehicleNo=int(self.vehicle_name[-1])
+        self.scale=5 #(meters per step)
 
     def StartTime(self, start, episode):
         self.start=start; self.end=start
         self.episode=episode
 
     def GetTime(self, end): self.end=end
+    def Newhome(self, home): self.home=home
 
     def ChngEpisodeLnght(self, new_episode_time):
         self.episode_time=new_episode_time
@@ -45,15 +47,12 @@ class Environment:
     def initializeState(self):
         h,w=self.sz
         responses = self.get_observations()
-        depth=util.byte2np_Depth(self.responses[0])
-        seg=util.byte2np_Seg(self.responses[2])
-
-        state = np.zeros((5,h,w))
-        state[0]=depth
-        state[1]=seg
-        state[2]=seg
-        state[3]=seg
-        # GPS state[4]= zeros
+        state = np.zeros((4,h,w))
+        state[0]=util.DistanceSensor2Image(self.home[0],self.home[1],distance_dict=self.distance_dict,
+                                            scale=self.scale, sz=self.sz, df_nofly=self.df_nofly)
+        state[1]=util.byte2np_Seg(self.responses[2])
+        state[2]=util.byte2np_Seg(self.responses[3])
+        state[3]= util.initialGPS(self.home[0],self.home[1], sz=self.sz, df_nofly=self.df_nofly)
         self.state=state
 
     def reset(self, weather= False, fog=0.0, rain=0.0, dust=0.0,
@@ -83,6 +82,8 @@ class Environment:
     def step(self, action, drone_pos_dict=None, drone_gps_dict=None):
         self.drone_pos_dict=drone_pos_dict
         self.drone_gps_dict=drone_gps_dict
+        self.reward=0
+        self.info=''
         # convert actions to movement
         self.quad_offset = self.interpret_action(action)
         #x_vel , y_vel, z_vel=self.governor()
@@ -92,9 +93,10 @@ class Environment:
         z_pos = self.client.getMultirotorState().kinematics_estimated.position.z_val
 
         # get height below to limit crash landings
-        img_depth=util.byte2np_Depth(self.responses[4], Normalize=False)#, Save=False, path='data',filename='Bottom_center_DepthPlanarS')
-        z_ht=util.Distance2Grnd(img_depth, self.sz, rng=10) # max sensor distance=40meters
-        if z_ht<8: self.quad_offset=(self.quad_offset[0], self.quad_offset[1], 0)
+        if self.distance_dict['Z']<8:
+            self.quad_offset=(self.quad_offset[0], self.quad_offset[1], 0)
+            self.reward+=-10
+            self.info+=' Too Low,'
 
         self.client.moveToPositionAsync(x_pos+self.quad_offset[0], y_pos+self.quad_offset[1],
                                         min(min(z_pos+self.quad_offset[2], self.maxz), -1), # z is negative
@@ -106,10 +108,10 @@ class Environment:
         # get new images
         next_state=self.next_state()
         self.DetectObstruction()
-        reward=self.Calculate_reward(z_ht)
+
         self.df_gps.appendGPShistory(self.client.getMultirotorState().kinematics_estimated.position,
                            self.client.getMultirotorState().kinematics_estimated.linear_velocity,
-                           reward, time.time_ns(), self.vehicle_name)
+                           self.reward, time.time_ns(), self.vehicle_name)
 
         # Distance between drone if less than 100 meters update dataframe
         if drone_gps_dict is not None:
@@ -125,19 +127,30 @@ class Environment:
                     self.df_gps.df.drop_duplicates(inplace=True)
                     self.df_gps.df.reset_index(inplace=True, drop=True)
 
-        return next_state, reward, self.done(reward), 'info'
+        return next_state, self.reward, self.done(), self.info
 
-    def done(self, reward):
+    def done(self):
         done=False
-        # episode ends if time runs out or collision
+        # episode ends if time runs out, collision, or if reward is too high
         timeisUp = True if self.deltaTime>=self.episode_time else False
-        if timeisUp: print('tic toc ... time is up')
+        if timeisUp:
+            print('tic toc ... time is up')
+            done = True
         if self.client.simGetCollisionInfo().has_collided:
             print('Oh fiddlesticks, we just hit something...')
-            self.client.reset()
-        if timeisUp or self.client.simGetCollisionInfo().has_collided: done = True
+            self.reward+= -5000
+            self.info+=f' Collision,'
+            done = True
+        if self.distance_dict['Front']<1 or self.distance_dict['Back']<1 or self.distance_dict['Right']<1 or \
+            self.distance_dict['Left']<1 or self.distance_dict['Z']<1:
+
+            print('We are too close to crashing...')
+            self.reward+= -4000
+            self.info+=f' Collision Iminent,'
+            done = True
+
         # adif the drone is too far from home
-        if reward <-5000: done = True# if the reward is too bad kill the episode
+        if self.reward <-5000: done = True# if the reward is too bad kill the episode
         return done
 
     def get_observations(self):
@@ -147,59 +160,51 @@ class Environment:
                                           airsim.ImageRequest("bottom_center", airsim.ImageType.Segmentation, False, False), # for reward
                                           airsim.ImageRequest("bottom_center", airsim.ImageType.DepthPlanar, pixels_as_float=True)]) # for reward
 
+        self.distance_dict=  {'Front': self.client.getDistanceSensorData(vehicle_name=self.vehicle_name, distance_sensor_name=f"DistanceFront_Drn{self.vehicleNo}").distance,
+                              'Back': self.client.getDistanceSensorData(vehicle_name=self.vehicle_name, distance_sensor_name=f"DistanceBack_Drn{self.vehicleNo}").distance,
+                              'Left': self.client.getDistanceSensorData(vehicle_name=self.vehicle_name, distance_sensor_name=f"DistanceLeft_Drn{self.vehicleNo}").distance,
+                              'Right':self.client.getDistanceSensorData(vehicle_name=self.vehicle_name, distance_sensor_name=f"DistanceRight_Drn{self.vehicleNo}").distance,
+                              'Z': util.Distance2Grnd(util.byte2np_Depth(self.responses[4], Normalize=False), self.sz, rng=10)}
+
     def next_state(self):
         self.deltaTime=self.end - self.start
-        # convert to size 224x224 images
-        # get depth image and front camera
         responses = self.get_observations()
-
-
-        depth=util.byte2np_Depth(self.responses[0])
-        seg=util.byte2np_Seg(self.responses[2])
-        # GPS needs to be added
         new_state = self.state.copy()
-        new_state[0]=depth
-        new_state[1]=seg
-        new_state[2]=self.state[1]
-        new_state[3]=self.state[2]
 
         x_position=self.client.getMultirotorState().kinematics_estimated.position.x_val
         y_position=self.client.getMultirotorState().kinematics_estimated.position.y_val
         z_position=self.client.getMultirotorState().kinematics_estimated.position.z_val
-        new_state[4]=self.df_gps.GPS2image(x_position, y_position,z_position, self.df_nofly)
-        self.state=new_state
 
+        new_state[0]=util.DistanceSensor2Image(x_position,y_position,distance_dict=self.distance_dict,
+                                            scale=self.scale, sz=self.sz, df_nofly=self.df_nofly)
+        new_state[1]=util.byte2np_Seg(self.responses[2])
+        new_state[2]=util.byte2np_Seg(self.responses[3])
+        new_state[3]=self.df_gps.GPS2image(x_position, y_position, self.df_nofly)
+        self.state=new_state
         return (new_state-0.5)/0.5 # imagenet normalization for inception style network
 
-    def Calculate_reward(self, z_ht):
-
-        img_seg=util.byte2np_Seg(self.responses[3])#, Save=False, path='data',
-                                #filename=f'Bottom_center_Seg_{self.episode}_{int(self.deltaTime*1000)}')
-
+    def Calculate_reward(self):
+         # reward penalty is also in interpret action, step function to prevent collisions, and done
         x_position=self.client.getMultirotorState().kinematics_estimated.position.x_val
         y_position=self.client.getMultirotorState().kinematics_estimated.position.y_val
         z_position=self.client.getMultirotorState().kinematics_estimated.position.z_val
-        #print('Is the road below:', util.isRoadBelow(img_seg, self.sz, rng=10))
-        roadBelow=util.isRoadBelow(img_seg, self.sz, rng=10)
 
-        #print('Calculated Z height:',z_ht,'Actual Z Height:', self.client.getMultirotorState().kinematics_estimated.position.z_val)
+        # get reward for percent of road below
+        roadReward=util.RoadBelowReward(util.byte2np_Seg(self.responses[3]), rng=50, reward=100)
+        self.reward+=roadReward
+        self.info+=f' Road Reward: {roadReward},'
 
-        reward=0
-        # collision
-        if self.client.simGetCollisionInfo().has_collided: reward+= -10000
-
-        if not roadBelow: reward+= -100 #change this to how much of the road is below
-            #print('No Road Below, -100')
-
-        reward+=max(util.HghtReward(z_ht), -1000)
-        #print(f'Height and reward: {z_ht}, {max(util.HghtReward(z_ht), -1000)}')
-        # back tracking
+        # height
+        hght=util.HghtReward(self.distance_dict['Z'])
+        self.reward+=max(hght, -1000)
+        self.info+=f' Height Penalty: {hght},'
 
         backtrack=max(util.Penalty4Backtrack(self.df_gps.getDataframe(), drone_dict=self.drone_gps_dict,
                                       dist=20, penalty=-10, x=x_position, y=y_position), -500)
-        reward+=backtrack
+        self.reward+=backtrack
+        self.info+=f' Backtrack Penalty: {backtrack},'
         #print(f'Penalty for backtracking {backtrack}')
-        if self.obstructionDetected: reward+=100
+        if self.obstructionDetected: self.reward+=100
 
         # penalize drone distance from one another
         if self.drone_pos_dict is not None:
@@ -210,36 +215,60 @@ class Environment:
                 z_pos=(self.drone_pos_dict[self.vehicle_name].z_val-self.drone_pos_dict[other_drone].z_val)
 
                 rss=math.sqrt(x_pos*x_pos+y_pos*y_pos+z_pos*z_pos)
-                reward+=util.DroneDistanceReward(rss)
-
+                self.reward+=util.DroneDistanceReward(rss)
+                self.info+=f' Drone Distance: {rss},'
         # penalize entering no fly zone
         if len(self.df_nofly)>0:
             for idx in self.df_nofly.index:
                 x_pos=x_position-self.df_nofly.loc[idx,'x']
                 y_pos=y_position-self.df_nofly.loc[idx,'y']
                 rss=math.sqrt(x_pos*x_pos+y_pos*y_pos)
-                reward+=util.NoFlyZoneReward(rss-self.df_nofly.loc[idx,'radius'])
+                self.reward+=util.NoFlyZoneReward(rss-self.df_nofly.loc[idx,'radius'])
+                self.info+=f" No Fly Zone Distance: {rss-self.df_nofly.loc[idx,'radius']},"
 
         # penalize distance from home if greater than 5km
         x_pos=x_position-self.home[0]
         y_pos=y_position-self.home[1]
         z_pos=z_position-self.home[2]
         rss=math.sqrt(x_pos*x_pos+y_pos*y_pos+z_pos*z_pos)
-        if rss>=5000: reward+=-4000
+        self.info+=f' Distance From Home: {rss},'
+        if rss>=5000:
+            self.reward+=-4000
 
-        return reward
 
 
     def interpret_action(self, action):
         """Interprete action"""
-        scale= 5
+        scale= self.scale
         assert action in np.arange(0,7), 'action must be between 0-6'
-        if action == 0: self.quad_offset = (0, 0, 0)
-        elif action == 1: self.quad_offset = (scale, 0, 0)
-        elif action == 2: self.quad_offset = (0, scale, 0)
-        elif action == 3: self.quad_offset = (0, 0, scale)
-        elif action == 4: self.quad_offset = (-scale, 0, 0)
-        elif action == 5: self.quad_offset = (0, -scale, 0)
+        if action == 0: # you should alway be exploring
+            self.quad_offset = (0, 0, 0)
+            self.reward+=-10
+        elif action == 1: # forward
+            if self.distance_dict['Front'] <scale*1.1:
+                self.quad_offset = (0, 0, 0)
+                self.reward+=-10
+                self.info+=' Stopped Front Impact,'
+            else: self.quad_offset = (scale, 0, 0)
+        elif action == 2: # right
+            if self.distance_dict['Right']<scale*1.1:
+                self.quad_offset = (0, 0, 0)
+                self.reward+=-10
+                self.info+=' Stopped Right Impact,'
+            else: self.quad_offset = (0, scale, 0)
+        elif action == 3: self.quad_offset = (0, 0, scale) # up
+        elif action == 4: # back
+            if self.distance_dict['Back']<scale*1.1:
+                self.quad_offset = (0, 0, 0)
+                self.reward+=-10
+                self.info+=' Stopped Rear Impact,'
+            else: self.quad_offset = (-scale, 0, 0)
+        elif action == 5: # left
+            if self.distance_dict['Left']<scale*1.1:
+                self.quad_offset = (0, 0, 0)
+                self.reward+=-10
+                self.info+=' Stopped Left Impact,'
+            else: self.quad_offset = (0, -scale, 0)
         elif action == 6: self.quad_offset = (0, 0, -scale)
         return self.quad_offset
 

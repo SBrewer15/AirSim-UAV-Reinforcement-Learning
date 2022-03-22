@@ -99,6 +99,23 @@ def isRoadBelow(img, sz, rng=10):
     if med >0.98: return True
     else: return False
 
+def Value2Color(val, vmin=0, vmax=1, palette='YlOrRd', zerocolor='#e3e3e3'):
+    """Input value from vmin to vmax returns hex color based on value and palette"""
+    import matplotlib as mpl
+    import matplotlib.cm as cm
+    try:
+        if np.isnan(val):
+            clr='#e3e3e3' # grey
+        elif val==0: clr=zerocolor# green if zero
+        else:
+            norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+            cmap = cm.get_cmap(palette)
+            m = cm.ScalarMappable(norm=norm, cmap=cmap)
+            rgba=m.to_rgba(val)
+            clr=mpl.colors.to_hex(rgba)
+    except: clr='#e3e3e3' # grey
+    return clr
+
 def plotcolorline(x, y, z, cmap='YlOrRd', norm=plt.Normalize(0.0, 1.0),
               linewidth=3, alpha=1.0):
     #breaks lines into segments and plots segment color as z value in colormap
@@ -137,7 +154,7 @@ class GPShistory:
 
     def getDataframe(self): return self.df
 
-    def GPS2image(self, x_cntr, y_cntr,z_cntr, df_nofly=None):
+    def GPS2image(self, x_cntr, y_cntr, df_nofly=None):
         df=self.df.copy()
         maxspeed=self.maxspeed
         vehicle_name=self.vehicle_name
@@ -241,7 +258,7 @@ def plot_Reward(df_summary, path, filename, show=False):
     plt.xlabel('Episodes')
     plt.legend(loc=2)
 
-    plt.ylim(-1000,10)
+    #plt.ylim(-1000,10)
     plt.grid()
 
 
@@ -254,3 +271,102 @@ def plot_Reward(df_summary, path, filename, show=False):
     plt.cla()
     plt.clf()
 
+
+
+def RoadBelowReward(img, rng=50, reward=100):
+    # input image
+    # looks at center of image and gets the percent of pixels that are equal to 1. (road)
+    # returns road percent * the reward
+    x,y=img.shape
+    x=int(x/2)
+    y=int(y/2)
+    try: return pd.DataFrame(img[x-rng:x+rng,y-rng:y+rng].flatten()).value_counts(normalize=True)[1]*reward
+    except: return 0
+
+def initialGPS(x_cntr,y_cntr, sz=(224, 224), df_nofly=None):
+    #################################### Plotting #########################################################
+    rad=100
+    fig, ax = plt.subplots(figsize=(5,5))
+    ax=plt.gca(); ax.set_axis_off()
+    ax.add_patch(patches.Rectangle((x_cntr-rad,y_cntr-rad+1), width=rad*2-1, height=rad*2-1, ec='k', facecolor='#b3b3b3'))
+    ax.add_patch(plt.Circle((x_cntr,y_cntr), rad, ec='k', facecolor='white'))
+    plt.xlim(x_cntr-rad,x_cntr+rad); plt.ylim(y_cntr-rad,y_cntr+rad)
+
+    if df_nofly is not None: # plot the no fly zone
+        for idx in df_nofly.index:
+            ax.add_patch(plt.Circle((df_nofly.loc[idx,'x'], df_nofly.loc[idx,'y']), df_nofly.loc[idx,'radius'],
+                                hatch='xxx',facecolor='grey'))
+
+    plt.plot(x_cntr, y_cntr ,marker='P', color='k', lw=6, ms=16, markeredgecolor='white',linestyle='None',markeredgewidth=2)
+    plt.tight_layout()
+    fig.canvas.draw()
+
+    # plot to image array
+    arr = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    arr = arr.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    arr = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+    # this padding only works for 224x224 images
+    arr=cv2.resize(arr[9:-11, 9:-11], (sz), interpolation=cv2.INTER_CUBIC)
+    # close the figure
+    plt.close(fig)
+    plt.figure().clear()
+    plt.close()
+    plt.cla()
+    plt.clf()
+
+    return arr
+
+def DistanceSensor2Image(x_cntr,y_cntr, distance_dict,scale=5, sz=(224, 224), df_nofly=None):
+    front_dist = distance_dict['Front']
+    back_dist = distance_dict['Back']
+    left_dist = distance_dict['Left']
+    right_dist = distance_dict['Right']
+    z_ht = distance_dict['Z']
+    rad=100
+    
+    #################################### Plotting #########################################################
+    fig, ax = plt.subplots(figsize=(5,5))
+    ax=plt.gca(); ax.set_axis_off()
+    ax.add_patch(patches.Rectangle((x_cntr-rad,y_cntr-rad+1), width=rad*2-1, height=rad*2-1, ec='k', facecolor='#b3b3b3'))
+    ax.add_patch(plt.Circle((x_cntr,y_cntr), rad, ec='k', facecolor='white'))
+    plt.xlim(x_cntr-rad,x_cntr+rad); plt.ylim(y_cntr-rad,y_cntr+rad)
+
+    if df_nofly is not None: # plot the no fly zone
+        for idx in df_nofly.index:
+            ax.add_patch(plt.Circle((df_nofly.loc[idx,'x'], df_nofly.loc[idx,'y']), df_nofly.loc[idx,'radius'],
+                                hatch='xxx',facecolor='grey'))
+
+    # Front (in image to the right)
+    plt.plot([x_cntr,x_cntr+front_dist], [y_cntr,y_cntr] ,lw=6, color=Value2Color(z_ht, vmin=-10, vmax=120, palette='Greys', zerocolor='#e3e3e3'))
+    if front_dist<scale*1.1: plt.plot(x_cntr+front_dist, y_cntr ,marker='x', color='k', lw=6, ms=16,linestyle='None')
+    # Back (in image to the left)
+    plt.plot([x_cntr,x_cntr-back_dist], [y_cntr,y_cntr] ,lw=6, color=Value2Color(z_ht, vmin=-10, vmax=120, palette='Greys', zerocolor='#e3e3e3'))
+    if back_dist<scale*1.1: plt.plot(x_cntr-back_dist, y_cntr ,marker='x', color='k', lw=6, ms=16,linestyle='None')
+    # Left (in image to the top)
+    plt.plot([x_cntr,x_cntr], [y_cntr,y_cntr+left_dist] ,lw=6, color=Value2Color(z_ht, vmin=-10, vmax=120, palette='Greys', zerocolor='#e3e3e3'))
+    if left_dist<scale*1.1: plt.plot(x_cntr, y_cntr+left_dist ,marker='x', color='k', lw=6, ms=16,linestyle='None')
+    # Reft (in image to the bottom)
+    plt.plot([x_cntr,x_cntr], [y_cntr,y_cntr-right_dist] ,lw=6, color=Value2Color(z_ht, vmin=-10, vmax=120, palette='Greys', zerocolor='#e3e3e3'))
+    if right_dist<scale*1.1: plt.plot(x_cntr, y_cntr-right_dist ,marker='x', color='k', lw=6, ms=16,linestyle='None')
+
+        # current Location
+    plt.plot(x_cntr, y_cntr ,marker='P', color='k', lw=6, ms=16, markeredgecolor='white',linestyle='None',markeredgewidth=2)
+
+    plt.tight_layout()
+    fig.canvas.draw()
+
+    # plot to image array
+    arr = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    arr = arr.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    arr = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+    # this padding only works for 224x224 images
+    arr=cv2.resize(arr[9:-11, 9:-11], (sz), interpolation=cv2.INTER_CUBIC)
+
+    # close the figure
+    plt.close(fig)
+    plt.figure().clear()
+    plt.close()
+    plt.cla()
+    plt.clf()
+
+    return arr
