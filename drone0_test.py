@@ -15,7 +15,7 @@ util.set_seed(42)
 pd.options.display.float_format = "{:,.3f}".format
 tm=dt.datetime.now().strftime("%Y-%m-%d")
 
-episode_time=90
+episode_time=61
 vehicle_name="Drone0"
 sz=(224,224)
 env_name=f'Neighborhood_test'
@@ -31,13 +31,13 @@ env.make_env()
 
 
 agent = DDQN(gamma=0.99, epsilon=0.0, lr=0.0001,
-             input_dims=((3,)+sz),
+             input_dims=((4,)+sz),
              n_actions=7, mem_size=5000, eps_min=0.0,
              batch_size=256, replace=500, eps_dec=1e-4,
              chkpt_dir='models/', algo=algo,
              env_name=env_name)
 
-load_name='Neighborhood_600s_DDQNAgent_2022-03-21'
+load_name='Neighborhood_600s_DDQNAgent_2022-03-22'
 agent.q_eval.load_previous_checkpoint(f'models/{load_name}_q_next')
 agent.q_next.load_previous_checkpoint(f'models/{load_name}_q_next')
 
@@ -63,17 +63,19 @@ while done==False:
     state= next_state
     n_steps += 1
 
-    print(action, reward)
+    print(action, reward, info)
 
     env.GetTime(time.time())
     if 0.8>env.deltaTime/60%1 <0.2 and df_print.loc[int(env.deltaTime/60), 'Printed']==False: # prints resutls every minute-ish
         end=dt.datetime.now()
-        print(f'Total Steps: {n_steps}, Time {env.deltaTime/60:0.1f}(min) Score {score: 0.1f} {end.strftime("%A %B %d, %Y")} at {end.strftime("%H:%M")}')
+        print(f'Total Steps: {n_steps}, Time {env.deltaTime/60:0.1f}(min) Score {score:0.1f} {end.strftime("%A %B %d, %Y")} at {end.strftime("%H:%M")}')
 
         df_print.loc[int(env.deltaTime/60), 'Printed']=True # prints only once
     if score <-100000: done = True # if the score is too bad kill the episode
-
-
+episode='test'
+if episode in ['test']:
+    agent.q_eval.save_weights_On_EpisodeNo(episode)
+    agent.q_next.save_weights_On_EpisodeNo(episode)
 
 
 # Fin

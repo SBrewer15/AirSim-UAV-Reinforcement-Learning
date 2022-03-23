@@ -14,51 +14,56 @@ pd.options.display.float_format = "{:,.3f}".format
 tm=dt.datetime.now().strftime("%Y-%m-%d")
 
 N_episodes=500
-episode_time=900
+episode_time=600
 vehicle_name="Drone0"
 sz=(224,224)
-env_name=f'Neighborhood_{episode_time}s2'
+env_name=f'Neighborhood_{episode_time}s'
 algo=f'DDQNAgent_{tm}'
 
 df_nofly=pd.DataFrame([], columns=['x','y','radius']) #37.2, 50.9, 15], [175,60,20]
+df_summary=pd.DataFrame([], columns=['Episode', 'Score', 'Average Score', 'Best Score',
+                                     'steps', 'Model Saved', 'Epsilon', 'Dropout', 'Vehicle Name'])
 
 env=Environment(vehicle_name=vehicle_name, df_nofly=df_nofly,
                 home=(15, -3, -30), maxz=120,
                 maxspeed=8.33,episode_time=episode_time, sz=sz)
 env.make_env()
 
-agent = DDQN(gamma=0.99, epsilon=0.840, lr=0.0001,
-             input_dims=((5,)+sz),
-             n_actions=7, mem_size=5000, eps_min=0.1,
-             batch_size=256, replace=500, eps_dec=1e-4,
+agent = DDQN(gamma=0.99, epsilon=1, lr=0.0001,
+             input_dims=((4,)+sz),
+             n_actions=7, mem_size=2500, eps_min=0.1,
+             batch_size=128, replace=500, eps_dec=1e-4,
              chkpt_dir='models/', algo=algo,
              env_name=env_name)
 
 # training history
-# Neighborhood_900s2_DDQNAgent_2022-03-17 start at epsilon 1.0 to 0.950
-# Neighborhood_900s_DDQNAgent_2022-03-17 start at  epsilon 0.950 to 0.908
-# Neighborhood_900s3_DDQNAgent_2022-03-17 start at epsilon 0.908 to 0.840
-# Neighborhood_900s_DDQNAgent_2022-03-18 start at epsilon 0.840
+# Neighborhood_900s_DDQNAgent_2022-03-19 start at epsilon 1.0 to 0.980 and best score of -X avg -X
 
-# for curiculum learning
-agent.q_eval.load_previous_checkpoint('models/Neighborhood_900s_DDQNAgent_2022-03-18_q_next')
-agent.q_next.load_previous_checkpoint('models/Neighborhood_900s_DDQNAgent_2022-03-18_q_next')
-#print('Loaded Old Model')
 
-best_score = -np.inf; n_steps = 0
-df_summary=pd.DataFrame([], columns=['Episode', 'Score', 'Average Score', 'Best Score',
-                                     'steps', 'Model Saved', 'Epsilon', 'Dropout', 'Vehicle Name'])
+# for loading from last (crash)
+load_name=None #'Neighborhood_600s_DDQNAgent_2022-03-22' # 3/20 now
+if load_name is not None:
+    agent.q_eval.load_previous_checkpoint(f'models/{load_name}_q_next')
+    agent.q_next.load_previous_checkpoint(f'models/{load_name}_q_next')
+    agent.memory.load_memory_buffer(load_name)
+    df_summary=pd.read_csv(f'data/{load_name}.csv')
+    best_score = df_summary.loc[df_summary.index[-1], 'Best Score']
+    n_steps = df_summary.loc[df_summary.index[-1],'steps']
+    epsilon  = df_summary.loc[df_summary.index[-1],'Epsilon']
+    episode_start  = df_summary.loc[df_summary.index[-1],'Episode']+1
+    agent.set_epsilon(epsilon)
+    print(f'Loaded Old Model data, Epsilon {epsilon:0.2f} Drone Replay Buffer {agent.memory.memory_counter}')
+else:
+    best_score = -np.inf
+    n_steps = 0;  episode_start=0
 
-for episode in range(N_episodes):
+
+Episode_lst=[e for e in range(N_episodes)]
+for episode in Episode_lst[episode_start:]:
     score = 0;
     done=False
     state=env.reset()
-    #env.client.moveToPositionAsync(15, -3, -110, 5, vehicle_name=env.vehicle_name).join()
-    #env.client.hoverAsync(vehicle_name=env.vehicle_name).join()
-    #env.get_observations()
-    #print('Total Reward', env.Calculate_reward())
 
-    #np.save(f'data/FirstArray_{episode}', state)
     drone_pos_dict, drone_gps_dict= None, None
     env.StartTime(time.time(), episode)
     df_print=pd.DataFrame([False]*(int(episode_time/60)+1), columns=['Printed'])
@@ -82,29 +87,38 @@ for episode in range(N_episodes):
         # make drone gps dictionary
         #drone_gps_dict = {vehicle_name: env.df_gps.getDataframe()}
 
-        if score <-100000: done = True # if the score is too bad kill the episode
-        #if done: #np.save(f'data/LastArray_{episode}', next_state)
+
         env.GetTime(time.time())
+        #episode stats once a minute
         if 0.8>env.deltaTime/60%1 <0.2 and df_print.loc[int(env.deltaTime/60), 'Printed']==False: # prints resutls every minute-ish
-            print(f'Total Steps: {n_steps}, Time {env.deltaTime:0.1f}s Score {score: 0.1f}')
+            end=dt.datetime.now()
+            print(f'Total Steps: {n_steps}, Time {env.deltaTime/60:0.1f}(min) Score {score: 0.1f} {end.strftime("%A %B %d, %Y")} at {end.strftime("%H:%M")}')
+
             df_print.loc[int(env.deltaTime/60), 'Printed']=True # prints only once
-    ## episode has ended
-    avg_score = np.mean(df_summary.loc[df_summary.index[-49:],'Score'].to_list()+[score])
-
+        if score <-100000: done = True # if the score is too bad kill the episode
+    ## ************************* episode has ended ************************** ##
+    avg_score = np.mean(df_summary.loc[df_summary.index[-9:],'Score'].to_list()+[score])
     df_summary.loc[len(df_summary)]= [episode, score, avg_score, best_score, n_steps,
-                                      True if avg_score > best_score else False,
+                                      True if avg_score > best_score and episode>3 else False,
                                       agent.epsilon, agent.dropout,vehicle_name]
-
     # Save Model
-    if avg_score > best_score: # if episode legth is not constant then this needs to change to score/second
+    if avg_score > best_score and episode>3: # if episode legnth is not constant then this needs to change to score/second?
         agent.save_models()
         best_score = avg_score
 
-
+    # print summary
     print(df_summary.tail(5).T)
-
     # Save Stuff
-    env.df_gps.saveGPS2csv(f'data/gps_data_{vehicle_name}_episode{episode}_{algo}.csv')
+    agent.memory.save_memory_buffer()
     filename=f'{env_name}_{algo}'
+    env.df_gps.saveGPS2csv(f'data/gps_data_{vehicle_name}_episode{episode}_{filename}.csv')
     df_summary.to_csv(f'data/{filename}.csv', index=False)
-    util.plot_Reward(df_summary, 'plots', filename)
+    #saves copy of model on these intervals
+    if episode in [10, 50, 100, 150, 200, 250, 300, 400, 500]:
+        agent.q_eval.save_weights_On_EpisodeNo(episode)
+        agent.q_next.save_weights_On_EpisodeNo(episode)
+
+
+# Fin
+end=dt.datetime.now()
+print(f'Finished at {end.strftime("%A %B %d, %Y")} at {end.strftime("%H:%M")}')
