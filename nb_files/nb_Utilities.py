@@ -280,7 +280,7 @@ def RoadBelowReward(img, rng=50, reward=100):
     x,y=img.shape
     x=int(x/2)
     y=int(y/2)
-    try: return pd.DataFrame(img[x-rng:x+rng,y-rng:y+rng].flatten()).value_counts(normalize=True)[1]*reward
+    try: return list(pd.DataFrame(img[x-rng:x+rng,y-rng:y+rng].flatten()).value_counts(normalize=True)[1]*reward)[0]
     except: return 0
 
 def initialGPS(x_cntr,y_cntr, sz=(224, 224), df_nofly=None):
@@ -323,7 +323,7 @@ def DistanceSensor2Image(x_cntr,y_cntr, distance_dict,scale=5, sz=(224, 224), df
     right_dist = distance_dict['Right']
     z_ht = distance_dict['Z']
     rad=100
-    
+
     #################################### Plotting #########################################################
     fig, ax = plt.subplots(figsize=(5,5))
     ax=plt.gca(); ax.set_axis_off()

@@ -126,8 +126,11 @@ class Environment:
                     self.df_gps.df=self.df_gps.df.append(self.drone_gps_dict[other_drone])
                     self.df_gps.df.drop_duplicates(inplace=True)
                     self.df_gps.df.reset_index(inplace=True, drop=True)
+        self.Calculate_reward()
+        #print(self.reward)
+        done=self.done()
 
-        return next_state, self.reward, self.done(), self.info
+        return next_state, self.reward, done, self.info
 
     def done(self):
         done=False
@@ -149,8 +152,9 @@ class Environment:
             self.info+=f' Collision Iminent,'
             done = True
 
-        # adif the drone is too far from home
-        if self.reward <-5000: done = True# if the reward is too bad kill the episode
+        # add if the drone is too far from home
+
+        if self.reward <-10000.: done = True# if the reward is too bad kill the episode
         return done
 
     def get_observations(self):
@@ -192,17 +196,18 @@ class Environment:
         # get reward for percent of road below
         roadReward=util.RoadBelowReward(util.byte2np_Seg(self.responses[3]), rng=50, reward=100)
         self.reward+=roadReward
-        self.info+=f' Road Reward: {roadReward},'
+        #print(self.reward)
+        self.info+=f' Road Reward: {roadReward:0.1f},'
 
         # height
         hght=util.HghtReward(self.distance_dict['Z'])
         self.reward+=max(hght, -1000)
-        self.info+=f' Height Penalty: {hght},'
+        self.info+=f' Height Penalty: {hght:0.1f},'
 
         backtrack=max(util.Penalty4Backtrack(self.df_gps.getDataframe(), drone_dict=self.drone_gps_dict,
                                       dist=20, penalty=-10, x=x_position, y=y_position), -500)
         self.reward+=backtrack
-        self.info+=f' Backtrack Penalty: {backtrack},'
+        self.info+=f' Backtrack Penalty: {backtrack:0.1f},'
         #print(f'Penalty for backtracking {backtrack}')
         if self.obstructionDetected: self.reward+=100
 
@@ -216,7 +221,7 @@ class Environment:
 
                 rss=math.sqrt(x_pos*x_pos+y_pos*y_pos+z_pos*z_pos)
                 self.reward+=util.DroneDistanceReward(rss)
-                self.info+=f' Drone Distance: {rss},'
+                self.info+=f' Drone Distance: {rss:0.1f},'
         # penalize entering no fly zone
         if len(self.df_nofly)>0:
             for idx in self.df_nofly.index:
@@ -224,14 +229,14 @@ class Environment:
                 y_pos=y_position-self.df_nofly.loc[idx,'y']
                 rss=math.sqrt(x_pos*x_pos+y_pos*y_pos)
                 self.reward+=util.NoFlyZoneReward(rss-self.df_nofly.loc[idx,'radius'])
-                self.info+=f" No Fly Zone Distance: {rss-self.df_nofly.loc[idx,'radius']},"
+                self.info+=f" No Fly Zone Distance: {rss-self.df_nofly.loc[idx,'radius']:0.1f},"
 
         # penalize distance from home if greater than 5km
         x_pos=x_position-self.home[0]
         y_pos=y_position-self.home[1]
         z_pos=z_position-self.home[2]
         rss=math.sqrt(x_pos*x_pos+y_pos*y_pos+z_pos*z_pos)
-        self.info+=f' Distance From Home: {rss},'
+        self.info+=f' Distance From Home: {rss:0.1f} (m),'
         if rss>=5000:
             self.reward+=-4000
 
