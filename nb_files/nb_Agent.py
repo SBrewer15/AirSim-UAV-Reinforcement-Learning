@@ -31,7 +31,7 @@ class DDQN(object):
         self.dropout = 0.001
         self.dropout_max = 0.2
 
-        self.memory = ReplayBuffer(mem_size, input_dims, n_actions)
+        self.memory = ReplayBuffer(mem_size, input_dims, n_actions, algo, env_name)
 
         self.q_eval = DQN(self.lr, self.n_actions,
                                     input_dims=self.input_dims,
@@ -74,6 +74,8 @@ class DDQN(object):
         if self.replace_target_cnt is not None and \
            self.learn_step_counter % self.replace_target_cnt == 0:
             self.q_next.load_state_dict(self.q_eval.state_dict())
+
+    def set_epsilon(self, epsilon): self.epsilon=epsilon
 
     def decrement_epsilon(self):
         if self.epsilon > self.eps_min:

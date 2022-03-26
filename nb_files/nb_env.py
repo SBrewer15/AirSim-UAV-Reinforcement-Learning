@@ -9,7 +9,7 @@ import cv2
 import nb_files.nb_Utilities as util
 
 class Environment:
-    def __init__(self, vehicle_name,  df_nofly, home= (0,0,0), maxz=120,
+    def __init__(self, vehicle_name, home= (0,0,0), maxz=120,
                     maxspeed=8.33, episode_time=900, sz=(224,224)): # change episode_time to 900 seconds (15 minutes)
         self.vehicle_name =vehicle_name
         self.home=home
@@ -18,7 +18,7 @@ class Environment:
         self.episode_time=episode_time
         self.reward=0
         self.sz=sz
-        self.df_nofly=df_nofly
+        self.df_nofly=pd.DataFrame([], columns=['x','y','radius'])
         self.vehicleNo=int(self.vehicle_name[-1])
         self.scale=5 #(meters per step)
 
@@ -28,6 +28,10 @@ class Environment:
 
     def GetTime(self, end): self.end=end
     def Newhome(self, home): self.home=home
+    def NewNoFlyZone(self, lstOfNoflyZones):
+        for nofly in lstOfNoflyZones:
+            self.df_nofly.loc[len(self.df_nofly)]=nofly
+    def ResetNoFlyZone(self): self.df_nofly=pd.DataFrame([], columns=['x','y','radius'])
 
     def ChngEpisodeLnght(self, new_episode_time):
         self.episode_time=new_episode_time
@@ -46,13 +50,16 @@ class Environment:
 
     def initializeState(self):
         h,w=self.sz
-        responses = self.get_observations()
-        state = np.zeros((4,h,w))
+        self.get_observations()
+        state = np.zeros((5,h,w))
         state[0]=util.DistanceSensor2Image(self.home[0],self.home[1],distance_dict=self.distance_dict,
                                             scale=self.scale, sz=self.sz, df_nofly=self.df_nofly)
-        state[1]=util.byte2np_Seg(self.responses[2])
-        state[2]=util.byte2np_Seg(self.responses[3])
-        state[3]= util.initialGPS(self.home[0],self.home[1], sz=self.sz, df_nofly=self.df_nofly)
+        state[1]=util.byte2np_Seg(self.responses[2], JustRoad=True) #Front
+        state[2]=util.byte2np_Seg(self.responses[3], JustRoad=True) #Bottom
+        state[3]=util.byte2np_Seg(self.responses[1], JustRoad=True) #Back
+        #state[4]=util.byte2np_Seg(self.responses[5], JustRoad=True) #Left
+        #state[5]=util.byte2np_Seg(self.responses[6], JustRoad=True) #Right
+        state[4]=util.initialGPS(self.home[0],self.home[1], sz=self.sz, df_nofly=self.df_nofly)
         self.state=state
 
     def reset(self, weather= False, fog=0.0, rain=0.0, dust=0.0,
@@ -65,7 +72,7 @@ class Environment:
         # future add ignore collisions until drone is at home position
         self.client.moveToPositionAsync(self.home[0], self.home[1], self.home[2], 5,
                                    vehicle_name=self.vehicle_name).join()
-        print("Honey I'm home")
+        print(f"Honey I'm home, x={self.home[0]:0.1f} y={self.home[1]:0.1f} z{self.home[2]:0.1f}")
         self.client.hoverAsync(vehicle_name=self.vehicle_name).join()
         # initialize gps data to dataframe here
         self.df_gps=util.GPShistory(self.client.getMultirotorState().kinematics_estimated.position,
@@ -159,10 +166,17 @@ class Environment:
 
     def get_observations(self):
         self.responses= self.client.simGetImages([ airsim.ImageRequest("front_center", airsim.ImageType.DepthPlanar, pixels_as_float=True),
-                                          airsim.ImageRequest("front_center", airsim.ImageType.Scene, False, False),
-                                          airsim.ImageRequest("front_center", airsim.ImageType.Segmentation, False, False),
-                                          airsim.ImageRequest("bottom_center", airsim.ImageType.Segmentation, False, False), # for reward
-                                          airsim.ImageRequest("bottom_center", airsim.ImageType.DepthPlanar, pixels_as_float=True)]) # for reward
+                                                airsim.ImageRequest("back_center", airsim.ImageType.Segmentation, False, False),
+                                                airsim.ImageRequest("front_center", airsim.ImageType.Segmentation, False, False),
+                                                airsim.ImageRequest("bottom_center", airsim.ImageType.Segmentation, False, False), # for reward
+                                                airsim.ImageRequest("bottom_center", airsim.ImageType.DepthPlanar, pixels_as_float=True)]) # for reward
+        #self.client.rotateToYawAsync(90, 1,2, vehicle_name=self.vehicle_name).join()
+        #self.client.hoverAsync(vehicle_name=self.vehicle_name).join()
+        #time.sleep(0.5)
+        #self.responses+= self.client.simGetImages([airsim.ImageRequest("front_center", airsim.ImageType.Segmentation, False, False),
+        #                                           airsim.ImageRequest("back_center", airsim.ImageType.Segmentation, False, False)]) # for reward
+        #self.client.rotateToYawAsync(-90, 1,1, vehicle_name=self.vehicle_name).join()
+        #self.client.hoverAsync(vehicle_name=self.vehicle_name).join()
 
         self.distance_dict=  {'Front': self.client.getDistanceSensorData(vehicle_name=self.vehicle_name, distance_sensor_name=f"DistanceFront_Drn{self.vehicleNo}").distance,
                               'Back': self.client.getDistanceSensorData(vehicle_name=self.vehicle_name, distance_sensor_name=f"DistanceBack_Drn{self.vehicleNo}").distance,
@@ -181,9 +195,12 @@ class Environment:
 
         new_state[0]=util.DistanceSensor2Image(x_position,y_position,distance_dict=self.distance_dict,
                                             scale=self.scale, sz=self.sz, df_nofly=self.df_nofly)
-        new_state[1]=util.byte2np_Seg(self.responses[2])
-        new_state[2]=util.byte2np_Seg(self.responses[3])
-        new_state[3]=self.df_gps.GPS2image(x_position, y_position, self.df_nofly)
+        new_state[1]=util.byte2np_Seg(self.responses[2], JustRoad=True) #Front
+        new_state[2]=util.byte2np_Seg(self.responses[3], JustRoad=True) #Bottom
+        new_state[3]=util.byte2np_Seg(self.responses[1], JustRoad=True) #Back
+        #new_state[4]=util.byte2np_Seg(self.responses[5], JustRoad=True) #Left
+        #new_state[5]=util.byte2np_Seg(self.responses[6], JustRoad=True) #Right
+        new_state[4]=self.df_gps.GPS2image(x_position, y_position, self.df_nofly)
         self.state=new_state
         return (new_state-0.5)/0.5 # imagenet normalization for inception style network
 
@@ -246,9 +263,11 @@ class Environment:
         """Interprete action"""
         scale= self.scale
         assert action in np.arange(0,7), 'action must be between 0-6'
-        if action == 0: # you should alway be exploring
+        if action == 0: # rotate drone to see left and right
             self.quad_offset = (0, 0, 0)
-            self.reward+=-10
+            self.client.rotateToYawAsync(90, 1,2, vehicle_name=self.vehicle_name).join()
+            self.client.hoverAsync(vehicle_name=self.vehicle_name).join()
+            time.sleep(0.5)
         elif action == 1: # forward
             if self.distance_dict['Front'] <scale*1.1:
                 self.quad_offset = (0, 0, 0)
@@ -319,16 +338,18 @@ class Environment:
             #print(mesh)
             #airsim.wait_key('Press any key to reset')
 
-        Class2ID={'grass': 1, 'road':2, 'stop':4,
-                  'sphere': 5, 'driveway':6, 'car': 7, 'power': 8,
-                  'driveway':9, 'roof':30, 'wall': 11,
-                  'street':13, 'path': 14, 'pool': 15, 'fence': 11,
-                  'tree':3, 'birch': 3, 'oak': 3,'fir':3,
-                  'hedge':17,'garden':27,
-                  'cone': 16, 'porch': 18, 'house':19,  'chimney':20,  'garage':19,
-                  'outer':19, # house walls
-                  'lamp':20, 'monument':21, 'stairs':22, 'rock':23,
-                  'bench':24, 'veranda':18,  'quadrotor':26}
+        #Class2ID={'grass': 1, 'road':2, 'stop':4,
+        #          'sphere': 5, 'driveway':6, 'car': 7, 'power': 8,
+        #          'driveway':9, 'roof':30, 'wall': 11,
+        #          'street':13, 'path': 14, 'pool': 15, 'fence': 11,
+        #          'tree':3, 'birch': 3, 'oak': 3,'fir':3,
+        #          'hedge':17,'garden':27,
+        #          'cone': 16, 'porch': 18, 'house':19,  'chimney':20,  'garage':19,
+        #          'outer':19, # house walls
+        #          'lamp':20, 'monument':21, 'stairs':22, 'rock':23,
+        #          'bench':24, 'veranda':18,  'quadrotor':26}
+
+        Class2ID={'road':2, 'quadrotor':26}
         for mesh, ID in  Class2ID.items():
             #print(mesh,self.client.simGetSegmentationObjectID(f"{mesh}[\w]*"))
             success=self.client.simSetSegmentationObjectID(f"{mesh}[\w]*", ID, True);

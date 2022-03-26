@@ -6,8 +6,9 @@
 import numpy as np
 
 class ReplayBuffer(object):
-    def __init__(self, max_size, input_shape, n_actions):
+    def __init__(self, max_size, input_shape, n_actions, algo='_', env_name='_'):
         self.memory_size = max_size
+        self.name=env_name+'_'+algo
         self.memory_counter = 0
         self.state_memory = np.zeros((self.memory_size, *input_shape),
                                      dtype=np.float32)
@@ -38,3 +39,19 @@ class ReplayBuffer(object):
         terminal = self.terminal_memory[batch]
 
         return states, actions, rewards, states_next, terminal
+
+    def save_memory_buffer(self): # this is ~5GB
+        np.save(f'data/{self.name}_state', self.state_memory)
+        np.save(f'data/{self.name}_next_state', self.new_state_memory)
+        np.save(f'data/{self.name}_action', self.action_memory)
+        np.save(f'data/{self.name}_reward', self.reward_memory)
+        np.save(f'data/{self.name}_done', self.terminal_memory)
+        np.save(f'data/{self.name}_memory_counter', [self.memory_counter])
+
+    def load_memory_buffer(self, filename):
+        self.state_memory = np.load(f'data/{filename}_state.npy')
+        self.new_state_memory = np.load(f'data/{filename}_next_state.npy')
+        self.action_memory = np.load(f'data/{filename}_action.npy')
+        self.reward_memory = np.load(f'data/{filename}_reward.npy')
+        self.terminal_memory = np.load(f'data/{filename}_done.npy')
+        self.memory_counter = np.load(f'data/{filename}_memory_counter.npy')[0]

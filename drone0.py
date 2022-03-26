@@ -13,26 +13,29 @@ import datetime as dt
 pd.options.display.float_format = "{:,.3f}".format
 tm=dt.datetime.now().strftime("%Y-%m-%d")
 
-N_episodes=500
+N_episodes=251
 episode_time=600
 vehicle_name="Drone0"
 sz=(224,224)
 env_name=f'Neighborhood_{episode_time}s'
 algo=f'DDQNAgent_{tm}'
 
-df_nofly=pd.DataFrame([], columns=['x','y','radius']) #37.2, 50.9, 15], [175,60,20]
+df_home=pd.DataFrame([[15,0], [73,0], [110,0], [0,0],[0,120],[0,-120]], columns=['x','y'])
+df_home['z']=np.random.randint(-60, high=-12, size=len(df_home), dtype=int)
+df_home=df_home+np.random.random_sample((len(df_home), 3)) *10-5
+
 df_summary=pd.DataFrame([], columns=['Episode', 'Score', 'Average Score', 'Best Score',
                                      'steps', 'Model Saved', 'Epsilon', 'Dropout', 'Vehicle Name'])
 
-env=Environment(vehicle_name=vehicle_name, df_nofly=df_nofly,
+env=Environment(vehicle_name=vehicle_name,
                 home=(15, -3, -30), maxz=120,
                 maxspeed=8.33,episode_time=episode_time, sz=sz)
 env.make_env()
 
 agent = DDQN(gamma=0.99, epsilon=1, lr=0.0001,
-             input_dims=((4,)+sz),
+             input_dims=((5,)+sz),
              n_actions=7, mem_size=2500, eps_min=0.1,
-             batch_size=128, replace=500, eps_dec=1e-4,
+             batch_size=64, replace=500, eps_dec=1e-4,
              chkpt_dir='models/', algo=algo,
              env_name=env_name)
 
@@ -41,9 +44,9 @@ agent = DDQN(gamma=0.99, epsilon=1, lr=0.0001,
 
 
 # for loading from last (crash)
-load_name=None #'Neighborhood_600s_DDQNAgent_2022-03-22' # 3/20 now
+load_name=None# 'Neighborhood_600s_DDQNAgent_2022-03-25'
 if load_name is not None:
-    agent.q_eval.load_previous_checkpoint(f'models/{load_name}_q_next')
+    agent.q_eval.load_previous_checkpoint(f'models/{load_name}_q_eval')
     agent.q_next.load_previous_checkpoint(f'models/{load_name}_q_next')
     agent.memory.load_memory_buffer(load_name)
     df_summary=pd.read_csv(f'data/{load_name}.csv')
@@ -60,6 +63,9 @@ else:
 
 Episode_lst=[e for e in range(N_episodes)]
 for episode in Episode_lst[episode_start:]:
+    idx=df_home.sample().index[0]
+    env.Newhome(list(df_home.loc[idx]))
+    env.NewNoFlyZone([list(df_home.loc[df_home[df_home.index!=0].sample().index[0], ['x','y']])+[20]])
     score = 0;
     done=False
     state=env.reset()
@@ -92,7 +98,7 @@ for episode in Episode_lst[episode_start:]:
         #episode stats once a minute
         if 0.8>env.deltaTime/60%1 <0.2 and df_print.loc[int(env.deltaTime/60), 'Printed']==False: # prints resutls every minute-ish
             end=dt.datetime.now()
-            print(f'Total Steps: {n_steps}, Time {env.deltaTime/60:0.1f}(min) Score {score: 0.1f} {end.strftime("%A %B %d, %Y")} at {end.strftime("%H:%M")}')
+            print(f'Total Steps: {n_steps}, Time {env.deltaTime/60:0.1f}(min) Score {score: 0.1f} {end.strftime("%a %b %d, %y")} at {end.strftime("%H:%M")}')
 
             df_print.loc[int(env.deltaTime/60), 'Printed']=True # prints only once
         if score <-100000: done = True # if the score is too bad kill the episode
@@ -117,7 +123,7 @@ for episode in Episode_lst[episode_start:]:
     if episode in [10, 50, 100, 150, 200, 250, 300, 400, 500]:
         agent.q_eval.save_weights_On_EpisodeNo(episode)
         agent.q_next.save_weights_On_EpisodeNo(episode)
-
+    env.ResetNoFlyZone()
 
 # Fin
 end=dt.datetime.now()

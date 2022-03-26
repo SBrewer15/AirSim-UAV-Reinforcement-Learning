@@ -69,7 +69,7 @@ def ChangeColor(img, clr_og, clr_new):
     img[:,:,:3][mask] = [b2, g2, r2]
     return img
 
-def byte2np_Seg(response, Save=False, path='data', filename=f'Test'):
+def byte2np_Seg(response, Save=False, path='data', filename=f'Test', JustRoad=False):
     img1d = np.fromstring(response.image_data_uint8, dtype=np.uint8)
     img = img1d.reshape(response.height, response.width, 3)
     # Change sky and road color
@@ -80,6 +80,7 @@ def byte2np_Seg(response, Save=False, path='data', filename=f'Test'):
     img=ChangeColor(img, clr_og=sky, clr_new=[0,0,0])
     # convert to greyscale
     img=cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)/255
+    if JustRoad: img=np.ma.masked_where(img == 1, img).mask.astype(int)
     if Save:
         filename = os.path.join(path, filename)
         np.save(filename, img)
@@ -213,7 +214,7 @@ class GPShistory:
         plt.cla()
         plt.clf()
 
-        return arr
+        return arr/255
 
 
 def Penalty4Backtrack(df_gps, x,y, dist=20, penalty=-3, drone_dict=None):
@@ -314,7 +315,7 @@ def initialGPS(x_cntr,y_cntr, sz=(224, 224), df_nofly=None):
     plt.cla()
     plt.clf()
 
-    return arr
+    return arr/255
 
 def DistanceSensor2Image(x_cntr,y_cntr, distance_dict,scale=5, sz=(224, 224), df_nofly=None):
     front_dist = distance_dict['Front']
@@ -369,4 +370,4 @@ def DistanceSensor2Image(x_cntr,y_cntr, distance_dict,scale=5, sz=(224, 224), df
     plt.cla()
     plt.clf()
 
-    return arr
+    return arr/255

@@ -32,7 +32,6 @@ class DQN(nn.Module):
     def forward(self, state):
         actions = self.model(state)
 
-
         return actions
 
     def save_checkpoint(self):
@@ -43,9 +42,9 @@ class DQN(nn.Module):
         print('... loading checkpoint ...')
         self.load_state_dict(T.load(self.checkpoint_file))
 
-    def load_previous_checkpoint(self, previous_checkpoint):
+    def load_previous_checkpoint(self, previous_checkpoint, suffex=''):
         print('... loading checkpoint ...')
-        self.load_state_dict(T.load(previous_checkpoint))
+        self.load_state_dict(T.load(f'{previous_checkpoint}{suffex}'))
         print('... Saving as new name ...')
         T.save(self.state_dict(), self.checkpoint_file)
 
