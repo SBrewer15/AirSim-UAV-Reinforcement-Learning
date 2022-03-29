@@ -15,7 +15,7 @@ util.set_seed(42)
 pd.options.display.float_format = "{:,.3f}".format
 tm=dt.datetime.now().strftime("%Y-%m-%d")
 
-episode_time=10
+episode_time=11
 vehicle_name="Drone0"
 sz=(224,224)
 env_name=f'Neighborhood_test'
@@ -26,22 +26,22 @@ df_home['z']=np.random.randint(-60, high=-12, size=len(df_home), dtype=int)
 df_home=df_home+np.random.random_sample((len(df_home), 3)) *10-5
 
 env=Environment(vehicle_name=vehicle_name,
-                home=(0, 0, -10), maxz=120,
+                home=(0, 100, -3), maxz=120,
                 maxspeed=8.33,episode_time=episode_time, sz=sz)
 env.make_env()
 
 
 
 agent = DDQN(gamma=0.99, epsilon=0.0, lr=0.0001,
-             input_dims=((7,)+sz),
+             input_dims=((5,)+sz),
              n_actions=7, mem_size=5000, eps_min=0.0,
              batch_size=256, replace=500, eps_dec=1e-4,
              chkpt_dir='models/', algo=algo,
              env_name=env_name)
 
-load_name='Neighborhood_600s_DDQNAgent_2022-03-25'
-agent.q_eval.load_previous_checkpoint(f'models/{load_name}_q_eval', suffex='_epsiode_50')
-agent.q_next.load_previous_checkpoint(f'models/{load_name}_q_next', suffex='_epsiode_50')
+load_name='Neighborhood_DDQNAgent_Just_Z-Reward_Low&High'
+agent.q_eval.load_previous_checkpoint(f'models/{load_name}_q_eval', suffex='')#_epsiode_10
+agent.q_next.load_previous_checkpoint(f'models/{load_name}_q_next', suffex='')
 #Neighborhood_600s_DDQNAgent_2022-03-23_q_eval_epsiode_100
 
 
@@ -59,8 +59,8 @@ act_lst=[]
 info_lst=['started']
 
 idx=df_home.sample().index[0]
-env.Newhome(list(df_home.loc[idx]))
-env.NewNoFlyZone([list(df_home.loc[df_home[df_home.index!=0].sample().index[0], ['x','y']])+[20]])
+#env.Newhome(list(df_home.loc[idx]))
+#env.NewNoFlyZone([list(df_home.loc[df_home[df_home.index!=0].sample().index[0], ['x','y']])+[20]])
 while done==False:
 
     action = agent.choose_action(state)
@@ -74,7 +74,7 @@ while done==False:
     state= next_state
     n_steps += 1
 
-    print(action, reward, info)
+    print(action, f'{reward:0.2f}', info)
 
     env.GetTime(time.time())
     if 0.8>env.deltaTime/60%1 <0.2 and df_print.loc[int(env.deltaTime/60), 'Printed']==False: # prints resutls every minute-ish
