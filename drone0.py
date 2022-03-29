@@ -12,7 +12,7 @@ import datetime as dt
 #util.set_seed(42)
 pd.options.display.float_format = "{:,.3f}".format
 tm=dt.datetime.now().strftime("%Y-%m-%d")
-ln='Just_Z-Reward_Low&High&ReallyHigh'
+ln='_Z-Reward_&_Road_Follow'
 N_episodes=301
 episode_time=30
 vehicle_name="Drone0"
@@ -20,8 +20,8 @@ sz=(224,224)
 env_name=f'Neighborhood'
 algo=f'DDQNAgent_{ln}'
 
-df_home=pd.DataFrame([[100,0], [75,-15], [0,-100], [0,100], [-100,0]], columns=['x','y'])
-df_nofly=pd.DataFrame([[75,0, 20],[75,-40,20],[0,-75,20],[0,75,20],[-75,0, 20]], columns=['x','y','radius']) # Note no fly zone index cooresponds to home position
+df_home=pd.DataFrame([[100.,0.], [75.,-15.], [0.,-100.], [0,100.], [-100.,0.]], columns=['x','y'])
+df_nofly=pd.DataFrame([[75.,0., 20.],[75.,-40.,20.],[0.,-75.,20.],[0.,75.,20.],[-75.,0., 20.]], columns=['x','y','radius']) # Note no fly zone index cooresponds to home position
 df_summary=pd.DataFrame([], columns=['Episode', 'Score', 'Average Score', 'Best Score',
                                      'steps', 'Model Saved', 'Epsilon', 'Dropout', 'Vehicle Name'])
 
@@ -72,7 +72,7 @@ for episode in Episode_lst[episode_start:]:
     #env.Newhome([0,0,-1*Zee])
 
     idx=df_home.sample().index[0]
-    env.Newhome(list(df_home.loc[idx])+[np.random.choice([5,75,40,20,30], p=[0.1,0.1, 0.3, 0.3,0.2])])
+    env.Newhome(list(df_home.loc[idx])+[np.random.choice([-5.,-75.,-40.,-20.,-30.], p=[0.1,0.1, 0.3, 0.3,0.2])])
     env.NewNoFlyZone([list(df_nofly.loc[idx])]) # currently only one no fly zone but method allows a list of them
 
     score = 0;
