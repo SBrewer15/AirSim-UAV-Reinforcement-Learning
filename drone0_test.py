@@ -15,18 +15,17 @@ util.set_seed(42)
 pd.options.display.float_format = "{:,.3f}".format
 tm=dt.datetime.now().strftime("%Y-%m-%d")
 
-episode_time=11
+episode_time=60
 vehicle_name="Drone0"
 sz=(224,224)
 env_name=f'Neighborhood_test'
 algo=f'DDQNAgent'
 
-df_home=pd.DataFrame([[15,0], [73,0], [110,0], [0,0],[0,120],[0,-120]], columns=['x','y'])
-df_home['z']=np.random.randint(-60, high=-12, size=len(df_home), dtype=int)
-df_home=df_home+np.random.random_sample((len(df_home), 3)) *10-5
+df_home=pd.DataFrame([[100.,0.], [75.,-15.], [0.,-100.], [0,100.], [-100.,0.]], columns=['x','y'])
+df_nofly=pd.DataFrame([[75.,0., 20.],[75.,-40.,20.],[0.,-75.,20.],[0.,75.,20.],[-75.,0., 20.]], columns=['x','y','radius']) # Note no fly zone index cooresponds to home position
 
 env=Environment(vehicle_name=vehicle_name,
-                home=(0, 100, -3), maxz=120,
+                home=(0, 0, -3), maxz=120,
                 maxspeed=8.33,episode_time=episode_time, sz=sz)
 env.make_env()
 
@@ -39,7 +38,7 @@ agent = DDQN(gamma=0.99, epsilon=0.0, lr=0.0001,
              chkpt_dir='models/', algo=algo,
              env_name=env_name)
 
-load_name='Neighborhood_DDQNAgent_Just_Z-Reward_Low&High'
+load_name='Neighborhood_DDQNAgent_Z_&_Road_Follow-Reward_w_BackTrack_Penalty_Pos1_50s'
 agent.q_eval.load_previous_checkpoint(f'models/{load_name}_q_eval', suffex='')#_epsiode_10
 agent.q_next.load_previous_checkpoint(f'models/{load_name}_q_next', suffex='')
 #Neighborhood_600s_DDQNAgent_2022-03-23_q_eval_epsiode_100
@@ -51,6 +50,10 @@ agent.q_next.load_previous_checkpoint(f'models/{load_name}_q_next', suffex='')
 #img_seg=util.byte2np_Seg(env.responses[3], Save=True, path='data', filename=f'Bottom_center_Seg_z30')
 
 score = 0; done=False; n_steps = 0; episode=0
+env.ResetNoFlyZone()
+idx=1
+env.Newhome(list(df_home.loc[idx])+[-15])
+env.NewNoFlyZone([list(df_nofly.loc[idx])]) # currently only one no fly zone but method allows a list of them
 
 state=env.reset()
 env.StartTime(time.time(), episode)
@@ -58,9 +61,8 @@ df_print=pd.DataFrame([False]*(int(episode_time/60)+1), columns=['Printed'])
 act_lst=[]
 info_lst=['started']
 
-idx=df_home.sample().index[0]
-#env.Newhome(list(df_home.loc[idx]))
-#env.NewNoFlyZone([list(df_home.loc[df_home[df_home.index!=0].sample().index[0], ['x','y']])+[20]])
+Start=dt.datetime.now()
+
 while done==False:
 
     action = agent.choose_action(state)
@@ -74,7 +76,7 @@ while done==False:
     state= next_state
     n_steps += 1
 
-    print(action, f'{reward:0.2f}', info)
+    print("*",action, f'{reward:0.2f}', info)
 
     env.GetTime(time.time())
     if 0.8>env.deltaTime/60%1 <0.2 and df_print.loc[int(env.deltaTime/60), 'Printed']==False: # prints resutls every minute-ish
@@ -93,7 +95,9 @@ frame['action']=act_lst
 frame['info']= info_lst
 frame.to_csv(f'data/{load_name}_test.csv', index=False)
 
-env.ResetNoFlyZone()
+
+print(f'Total Steps: {n_steps}, Time {env.deltaTime/60:0.1f}(min) Score {score:0.1f} {end.strftime("%a %b %d, %y")} at {end.strftime("%H:%M")}')
 # Fin
+print(f'Started at {Start.strftime("%a %b %d, %y")} at {Start.strftime("%H:%M")}')
 end=dt.datetime.now()
 print(f'Finished at {end.strftime("%a %b %d, %y")} at {end.strftime("%H:%M")}')

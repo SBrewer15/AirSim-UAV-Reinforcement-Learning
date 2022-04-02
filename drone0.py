@@ -12,9 +12,9 @@ import datetime as dt
 #util.set_seed(42)
 pd.options.display.float_format = "{:,.3f}".format
 tm=dt.datetime.now().strftime("%Y-%m-%d")
-ln='_Z-Reward_&_Road_Follow'
-N_episodes=301
-episode_time=30
+N_episodes=401 # 100 (30 second) episodes, 100 (40 second) episodes, 100 (50 second) episodes
+episode_time=34
+ln=f'Z_&_Nonlinear_Road_Follow-Reward_w_BackTrack_Penalty_Pos1_{episode_time}s'
 vehicle_name="Drone0"
 sz=(224,224)
 env_name=f'Neighborhood'
@@ -30,27 +30,27 @@ env=Environment(vehicle_name=vehicle_name,
                 maxspeed=8.33,episode_time=episode_time, sz=sz)
 env.make_env()
 
-agent = DDQN(gamma=0.99, epsilon=1, lr=0.0001,
+agent = DDQN(gamma=0.99, epsilon=1, lr=0.00001,
              input_dims=((5,)+sz),
              n_actions=7, mem_size=2500, eps_min=0.1,
              batch_size=64, replace=500, eps_dec=1e-3,
              chkpt_dir='models/', algo=algo,
              env_name=env_name)
 
-load_name= 'Neighborhood_DDQNAgent_Just_Z-Reward_Low&High' # 'Neighborhood_600s_DDQNAgent_2022-03-26'
+load_name= 'Neighborhood_DDQNAgent_Z_&_Road_Follow-Reward_w_BackTrack_Penalty_Pos1_50s' # 'Neighborhood_600s_DDQNAgent_2022-03-26'
 if load_name is not None:
     agent.q_eval.load_previous_checkpoint(f'models/{load_name}_q_eval')
     agent.q_next.load_previous_checkpoint(f'models/{load_name}_q_next')
-    #agent.memory.load_memory_buffer(load_name)
-    #df_summary=pd.read_csv(f'data/{load_name}.csv')
-    #best_score = df_summary.loc[df_summary.index[-1], 'Best Score']
-    #n_steps = df_summary.loc[df_summary.index[-1],'steps']
-    #epsilon  = df_summary.loc[df_summary.index[-1],'Epsilon']
-    #episode_start  = df_summary.loc[df_summary.index[-1],'Episode']+1
-    epsilon=1
-    best_score = -np.inf
-    n_steps = 0;  episode_start=0
-    #agent.set_epsilon(0.75)#epsilon)
+    agent.memory.load_memory_buffer(load_name)
+    df_summary=pd.read_csv(f'data/{load_name}.csv')
+    best_score = df_summary.loc[df_summary.index[-1], 'Best Score']
+    n_steps = df_summary.loc[df_summary.index[-1],'steps']
+    epsilon  = df_summary.loc[df_summary.index[-1],'Epsilon']
+    episode_start  = df_summary.loc[df_summary.index[-1],'Episode']+1
+    epsilon=0.5
+    #best_score = -np.inf
+    #n_steps = 0;  episode_start=0
+    agent.set_epsilon(epsilon)
     print(f'Loaded Old Model data, Epsilon {epsilon:0.2f} Drone Replay Buffer {agent.memory.memory_counter}')
 else:
     best_score = -np.inf
@@ -58,6 +58,7 @@ else:
 
 #min_z=3; Z=30; Z_dec=0.99
 #max_z=110; Z=30; Z_inc=1.01
+Start=dt.datetime.now()
 Episode_lst=[e for e in range(N_episodes)]
 for episode in Episode_lst[episode_start:]:
     env.ResetNoFlyZone()
@@ -71,7 +72,7 @@ for episode in Episode_lst[episode_start:]:
     #else: Zee=7
     #env.Newhome([0,0,-1*Zee])
 
-    idx=df_home.sample().index[0]
+    idx=1#df_home.sample().index[0]
     env.Newhome(list(df_home.loc[idx])+[np.random.choice([-5.,-75.,-40.,-20.,-30.], p=[0.1,0.1, 0.3, 0.3,0.2])])
     env.NewNoFlyZone([list(df_nofly.loc[idx])]) # currently only one no fly zone but method allows a list of them
 
@@ -91,7 +92,8 @@ for episode in Episode_lst[episode_start:]:
         #print(action, score)
         agent.store_transition(state, action,reward, next_state, int(done))
         agent.learn()
-        print(action, f'{reward:0.2f}', info)
+        end=dt.datetime.now()
+        print("* ",action, f'{reward:0.2f}', info, f'{end.strftime("%a %b %d, %y")} at {end.strftime("%H:%M")}')
 
         state= next_state
         n_steps += 1
@@ -113,7 +115,7 @@ for episode in Episode_lst[episode_start:]:
             df_print.loc[int(env.deltaTime/60), 'Printed']=True # prints only once
         if score <-100000: done = True # if the score is too bad kill the episode
     ## ************************* episode has ended ************************** ##
-    avg_score = np.mean(df_summary.loc[df_summary.index[-19:],'Score'].to_list()+[score])
+    avg_score = np.mean(df_summary.loc[df_summary.index[-9:],'Score'].to_list()+[score])
     df_summary.loc[len(df_summary)]= [episode, score, avg_score, best_score, n_steps,
                                       True if avg_score > best_score and episode>3 else False,
                                       agent.epsilon, agent.dropout,vehicle_name]
@@ -130,11 +132,12 @@ for episode in Episode_lst[episode_start:]:
     #env.df_gps.saveGPS2csv(f'data/GPS/gps_data_{vehicle_name}_episode{episode}_{filename}.csv')
     df_summary.to_csv(f'data/{filename}.csv', index=False)
     #saves copy of model on these intervals
-    if episode in [10, 50, 100, 150, 200, 250, 300, 400, 500]:
+    if episode in [10, 50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800,900, 1000,1100,1200,1300,1400,1500]:
         agent.q_eval.save_weights_On_EpisodeNo(episode)
         agent.q_next.save_weights_On_EpisodeNo(episode)
 
 
 # Fin
+print(f'Started at {Start.strftime("%a %b %d, %y")} at {Start.strftime("%H:%M")}')
 end=dt.datetime.now()
 print(f'Finished at {end.strftime("%A %B %d, %Y")} at {end.strftime("%H:%M")}')

@@ -100,7 +100,7 @@ class Environment:
         z_pos = self.client.getMultirotorState().kinematics_estimated.position.z_val
 
         # get height below to limit crash landings
-        if self.distance_dict['Z']<8:
+        if self.distance_dict['Z']<2:
             self.quad_offset=(self.quad_offset[0], self.quad_offset[1], 0)
             self.reward+=-10
             self.info+=' Too Low,'
@@ -118,7 +118,7 @@ class Environment:
 
         self.df_gps.appendGPShistory(self.client.getMultirotorState().kinematics_estimated.position,
                            self.client.getMultirotorState().kinematics_estimated.linear_velocity,
-                           self.reward, time.time_ns(), self.vehicle_name)
+                           self.reward, time.time_ns(), self.vehicle_name,self.info)
 
         # Distance between drone if less than 100 meters update dataframe
         if drone_gps_dict is not None:
@@ -211,15 +211,14 @@ class Environment:
         z_position=self.client.getMultirotorState().kinematics_estimated.position.z_val
 
         # get reward for percent of road below
-        roadReward=util.RoadBelowReward(util.byte2np_Seg(self.responses[3]), rng=50, reward=100)
+        roadReward=util.RoadBelowReward(util.byte2np_Seg(self.responses[3]), rng=50, reward=100, nonlinear=True)
         self.reward+=roadReward
-        #print(self.reward)
         self.info+=f' Road Reward: {roadReward:0.1f},'
 
         # height
         hght=util.HghtReward(self.distance_dict['Z'])
         self.reward+=max(hght, -1000)
-        self.info+=f' Height Penalty: {hght:0.1f},'
+        self.info+=f' Height Penalty: {hght:0.1f} Z: {self.distance_dict["Z"]:0.1f}(m),'
 
         backtrack=max(util.Penalty4Backtrack(self.df_gps.getDataframe(), drone_dict=self.drone_gps_dict,
                                       dist=20, penalty=-10, x=x_position, y=y_position), -500)
@@ -254,8 +253,7 @@ class Environment:
         z_pos=z_position-self.home[2]
         rss=math.sqrt(x_pos*x_pos+y_pos*y_pos+z_pos*z_pos)
         self.info+=f' Distance From Home: {rss:0.1f} (m),'
-        if rss>=5000:
-            self.reward+=-4000
+        #if rss>=5000: self.reward+=-4000
 
 
 

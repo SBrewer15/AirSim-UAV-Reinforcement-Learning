@@ -131,21 +131,21 @@ def plotcolorline(x, y, z, cmap='YlOrRd', norm=plt.Normalize(0.0, 1.0),
     return lc
 
 class GPShistory:
-    def __init__(self, position, velocity, reward, time_stamp, vehicle_name, image_size, maxspeed):
+    def __init__(self, position, velocity, reward, time_stamp, vehicle_name, image_size, maxspeed, info=''):
         self.columns=['x_position', 'y_position', 'z_position',
                      'x_velocity', 'y_velocity', 'z_velocity',
-                     'Reward', 'time_stamp', 'vehicle_name']
+                     'Reward', 'time_stamp', 'vehicle_name', 'info']
         self.sz=image_size
         self.vehicle_name=vehicle_name
         self.maxspeed= maxspeed
         self.df=pd.DataFrame([[position.x_val, position.y_val, position.z_val,
                                velocity.x_val, velocity.y_val, velocity.z_val,
-                              reward, time_stamp,vehicle_name]], columns=self.columns)
+                              reward, time_stamp,vehicle_name, info]], columns=self.columns)
 
-    def appendGPShistory(self, position, velocity, reward, time_stamp, vehicle_name):
+    def appendGPShistory(self, position, velocity, reward, time_stamp, vehicle_name, info):
         self.df.loc[len(self.df)]= [position.x_val, position.y_val, position.z_val,
                                     velocity.x_val, velocity.y_val, velocity.z_val,
-                                    reward, time_stamp,vehicle_name]
+                                    reward, time_stamp,vehicle_name, info]
 
     def saveGPS2csv(self, filename):
         self.df.to_csv(filename, index=False)
@@ -274,14 +274,26 @@ def plot_Reward(df_summary, path, filename, show=False):
 
 
 
-def RoadBelowReward(img, rng=50, reward=100):
-    # input image
-    # looks at center of image and gets the percent of pixels that are equal to 1. (road)
-    # returns road percent * the reward
+def RoadBelowReward(img, rng=50, reward=100, nonlinear=False):
+    # input image, 2*rng =center square,
+    # reward for being over the road is concentrated around the center of the image and dissipates near edges
+    # OR looks at center of image and gets the percent of pixels that are equal to 1. (road)
+    # returns reward or road percent * the reward
+
     x,y=img.shape
     x=int(x/2)
     y=int(y/2)
-    try: return list(pd.DataFrame(img[x-rng:x+rng,y-rng:y+rng].flatten()).value_counts(normalize=True)[1]*reward)[0]
+    img_cntr=img[x-rng:x+rng,y-rng:y+rng].copy()
+    img_cntr=np.ma.masked_where(img_cntr == 1, img_cntr).mask.astype(int)
+
+    try:
+        if nonlinear:
+            rwd_arr=np.array(list(np.arange(1,rng+1))+list(np.arange(rng,0,-1)))
+            rwd_mat=rwd_arr*rwd_arr[np.newaxis].T
+            rwd_mat=rwd_mat/(rwd_mat.max()*1000)
+            return (img_cntr*rwd_mat*reward).sum()
+
+        else: return (img_cntr.sum()/(rng*2)**2)*reward
     except: return 0
 
 def initialGPS(x_cntr,y_cntr, sz=(224, 224), df_nofly=None):
