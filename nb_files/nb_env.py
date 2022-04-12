@@ -116,6 +116,8 @@ class Environment:
         next_state=self.next_state()
         self.DetectObstruction()
 
+        self.Calculate_reward()
+        #print(self.reward)
         self.df_gps.appendGPShistory(self.client.getMultirotorState().kinematics_estimated.position,
                            self.client.getMultirotorState().kinematics_estimated.linear_velocity,
                            self.reward, time.time_ns(), self.vehicle_name,self.info)
@@ -133,8 +135,7 @@ class Environment:
                     self.df_gps.df=self.df_gps.df.append(self.drone_gps_dict[other_drone])
                     self.df_gps.df.drop_duplicates(inplace=True)
                     self.df_gps.df.reset_index(inplace=True, drop=True)
-        self.Calculate_reward()
-        #print(self.reward)
+
         done=self.done()
 
         return next_state, self.reward, done, self.info
@@ -156,7 +157,7 @@ class Environment:
 
             print('We are too close to crashing...')
             self.reward+= -4000
-            self.info+=f' Collision Iminent,'
+            self.info+=f' Collision Imminent,'
             done = True
 
         # add if the drone is too far from home
@@ -200,6 +201,7 @@ class Environment:
         new_state[3]=util.byte2np_Seg(self.responses[1], JustRoad=True) #Back
         #new_state[4]=util.byte2np_Seg(self.responses[5], JustRoad=True) #Left
         #new_state[5]=util.byte2np_Seg(self.responses[6], JustRoad=True) #Right
+        #new_state[4]=util.initialGPS(self.home[0],self.home[1], sz=self.sz, df_nofly=self.df_nofly)
         new_state[4]=self.df_gps.GPS2image(x_position, y_position, self.df_nofly)
         self.state=new_state
         return (new_state-0.5)/0.5 # imagenet normalization for inception style network
@@ -211,7 +213,7 @@ class Environment:
         z_position=self.client.getMultirotorState().kinematics_estimated.position.z_val
 
         # get reward for percent of road below
-        roadReward=util.RoadBelowReward(util.byte2np_Seg(self.responses[3]), rng=50, reward=100, nonlinear=True)
+        roadReward=util.RoadBelowReward(util.byte2np_Seg(self.responses[3]), rng=50, reward=100, nonlinear=False)
         self.reward+=roadReward
         self.info+=f' Road Reward: {roadReward:0.1f},'
 
@@ -221,7 +223,7 @@ class Environment:
         self.info+=f' Height Penalty: {hght:0.1f} Z: {self.distance_dict["Z"]:0.1f}(m),'
 
         backtrack=max(util.Penalty4Backtrack(self.df_gps.getDataframe(), drone_dict=self.drone_gps_dict,
-                                      dist=20, penalty=-10, x=x_position, y=y_position), -500)
+                                      dist=20, penalty=-5, x=x_position, y=y_position), -500)
         self.reward+=backtrack
         self.info+=f' Backtrack Penalty: {backtrack:0.1f},'
         #print(f'Penalty for backtracking {backtrack}')
@@ -263,9 +265,10 @@ class Environment:
         assert action in np.arange(0,7), 'action must be between 0-6'
         if action == 0: # rotate drone to see left and right
             self.quad_offset = (0, 0, 0)
-            self.client.rotateToYawAsync(90, 1,2, vehicle_name=self.vehicle_name).join()
-            self.client.hoverAsync(vehicle_name=self.vehicle_name).join()
-            time.sleep(0.5)
+            #self.client.rotateToYawAsync(90, 1,2, vehicle_name=self.vehicle_name).join()
+            #self.client.hoverAsync(vehicle_name=self.vehicle_name).join()
+            self.reward-=10
+            #time.sleep(0.5)
         elif action == 1: # forward
             if self.distance_dict['Front'] <scale*1.1:
                 self.quad_offset = (0, 0, 0)
@@ -336,18 +339,18 @@ class Environment:
             #print(mesh)
             #airsim.wait_key('Press any key to reset')
 
-        #Class2ID={'grass': 1, 'road':2, 'stop':4,
-        #          'sphere': 5, 'driveway':6, 'car': 7, 'power': 8,
-        #          'driveway':9, 'roof':30, 'wall': 11,
-        #          'street':13, 'path': 14, 'pool': 15, 'fence': 11,
-        #          'tree':3, 'birch': 3, 'oak': 3,'fir':3,
-        #          'hedge':17,'garden':27,
-        #          'cone': 16, 'porch': 18, 'house':19,  'chimney':20,  'garage':19,
-        #          'outer':19, # house walls
-        #          'lamp':20, 'monument':21, 'stairs':22, 'rock':23,
-        #          'bench':24, 'veranda':18,  'quadrotor':26}
+        Class2ID={'grass': 1, 'road':2, 'stop':4,
+                  'sphere': 5, 'driveway':6, 'car': 7, 'power': 8,
+                  'driveway':9, 'roof':30, 'wall': 11,
+                  'street':13, 'path': 14, 'pool': 15, 'fence': 11,
+                  'tree':3, 'birch': 3, 'oak': 3,'fir':3,
+                  'hedge':17,'garden':27,
+                  'cone': 16, 'porch': 18, 'house':19,  'chimney':20,  'garage':19,
+                  'outer':19, # house walls
+                  'lamp':20, 'monument':21, 'stairs':22, 'rock':23,
+                  'bench':24, 'veranda':18,  'quadrotor':26}
 
-        Class2ID={'road':2, 'quadrotor':26}
+        #Class2ID={'road':2, 'quadrotor':26}
         for mesh, ID in  Class2ID.items():
             #print(mesh,self.client.simGetSegmentationObjectID(f"{mesh}[\w]*"))
             success=self.client.simSetSegmentationObjectID(f"{mesh}[\w]*", ID, True);

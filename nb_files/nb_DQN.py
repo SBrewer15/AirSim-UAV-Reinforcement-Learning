@@ -50,4 +50,4 @@ class DQN(nn.Module):
 
     def save_weights_On_EpisodeNo(self, episode):
         print('... saving checkpoint ...')
-        T.save(self.state_dict(), f'{self.checkpoint_file}_epsiode_{episode}')
+        T.save(self.state_dict(), f'{self.checkpoint_file}_episode_{episode}')

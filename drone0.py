@@ -12,9 +12,15 @@ import datetime as dt
 #util.set_seed(42)
 pd.options.display.float_format = "{:,.3f}".format
 tm=dt.datetime.now().strftime("%Y-%m-%d")
-N_episodes=401 # 100 (30 second) episodes, 100 (40 second) episodes, 100 (50 second) episodes
-episode_time=34
-ln=f'Z_&_Nonlinear_Road_Follow-Reward_w_BackTrack_Penalty_Pos1_{episode_time}s'
+N_episodes=1751 # 100 (20 second) episodes, 100 (35 second) episodes,
+               # 100 (40 second) episodes, 100 (40 seconds) episodes nonlinear reward epsilon start 0.5
+               # 100 (40 seconds) episodes nonlinear reward epsilon start 0.5 added back segmentation of road sky and not road
+               # 100 (60 seconds) episodes nonlinear reward epsilon start 0.25 added back full segmentation
+
+
+
+episode_time=76
+ln=f'Z_&_Road_Follow-Reward_w_BackTrack_Penalty_Pos1_{episode_time}s'
 vehicle_name="Drone0"
 sz=(224,224)
 env_name=f'Neighborhood'
@@ -29,25 +35,25 @@ env=Environment(vehicle_name=vehicle_name,
                 home=(0, 0, -5), maxz=120,
                 maxspeed=8.33,episode_time=episode_time, sz=sz)
 env.make_env()
-
-agent = DDQN(gamma=0.99, epsilon=1, lr=0.00001,
+epsilon=0.25
+agent = DDQN(gamma=0.99, epsilon=epsilon, lr=0.00001,
              input_dims=((5,)+sz),
              n_actions=7, mem_size=2500, eps_min=0.1,
-             batch_size=64, replace=500, eps_dec=1e-3,
+             batch_size=32, replace=500, eps_dec=5e-4,
              chkpt_dir='models/', algo=algo,
              env_name=env_name)
 
-load_name= 'Neighborhood_DDQNAgent_Z_&_Road_Follow-Reward_w_BackTrack_Penalty_Pos1_50s' # 'Neighborhood_600s_DDQNAgent_2022-03-26'
+load_name= 'Neighborhood_DDQNAgent_Z_&_Road_Follow-Reward_w_BackTrack_Penalty_Pos1_76s'
 if load_name is not None:
-    agent.q_eval.load_previous_checkpoint(f'models/{load_name}_q_eval')
-    agent.q_next.load_previous_checkpoint(f'models/{load_name}_q_next')
+    agent.q_eval.load_previous_checkpoint(f'models/{load_name}_q_eval', suffex='')
+    agent.q_next.load_previous_checkpoint(f'models/{load_name}_q_next', suffex='')
     agent.memory.load_memory_buffer(load_name)
     df_summary=pd.read_csv(f'data/{load_name}.csv')
     best_score = df_summary.loc[df_summary.index[-1], 'Best Score']
     n_steps = df_summary.loc[df_summary.index[-1],'steps']
     epsilon  = df_summary.loc[df_summary.index[-1],'Epsilon']
     episode_start  = df_summary.loc[df_summary.index[-1],'Episode']+1
-    epsilon=0.5
+    #epsilon=0.25
     #best_score = -np.inf
     #n_steps = 0;  episode_start=0
     agent.set_epsilon(epsilon)
@@ -56,25 +62,17 @@ else:
     best_score = -np.inf
     n_steps = 0;  episode_start=0
 
-#min_z=3; Z=30; Z_dec=0.99
-#max_z=110; Z=30; Z_inc=1.01
+saved_epsilon=epsilon
+explore_epsilon=1.; explore=False
 Start=dt.datetime.now()
 Episode_lst=[e for e in range(N_episodes)]
 for episode in Episode_lst[episode_start:]:
     env.ResetNoFlyZone()
-    #if Z>min_z: Z=Z*Z_dec
-    #else: Z=min_z
-    #high=np.random.choice([0,1], p=[0.1, 0.9])
-    #if high==1:
-    #    if Z<max_z: Z=Z*Z_inc
-    #    else: Z=max_z
-    #    Zee=Z
-    #else: Zee=7
-    #env.Newhome([0,0,-1*Zee])
 
-    idx=1#df_home.sample().index[0]
-    env.Newhome(list(df_home.loc[idx])+[np.random.choice([-5.,-75.,-40.,-20.,-30.], p=[0.1,0.1, 0.3, 0.3,0.2])])
-    env.NewNoFlyZone([list(df_nofly.loc[idx])]) # currently only one no fly zone but method allows a list of them
+    idx=1
+    z=np.random.choice([-50.,-75.,-40.,-20.,-30.], p=[0.1,0.1, 0.3, 0.3,0.2])
+    env.Newhome(list(df_home.loc[idx])+[z])
+    env.NewNoFlyZone([list(df_nofly.loc[idx])])#, [30,-110,20], [-30,-110,20], [0,-150,20]]) # currently only one no fly zone but method allows a list of them
 
     score = 0;
     done=False
@@ -85,26 +83,32 @@ for episode in Episode_lst[episode_start:]:
     df_print=pd.DataFrame([False]*(int(episode_time/60)+1), columns=['Printed'])
     while done==False:
 
-        action = agent.choose_action(state)
+        if (agent.epsilon<= 0.1)&(env.deltaTime>=episode_time-20):
+            print(f'Exploring at end of episode. Explore-Epsilon: {explore_epsilon:0.3f}')
+            explore=True
+            agent.set_epsilon(explore_epsilon)
+            action = agent.choose_action(state)
+        else:
+            explore=False
+            action = agent.choose_action(state)
+
 
         next_state, reward, done, info = env.step(action)#, drone_pos_dict, drone_gps_dict)
         score += reward
         #print(action, score)
         agent.store_transition(state, action,reward, next_state, int(done))
         agent.learn()
+        if explore:
+            explore_epsilon=agent.epsilon
+            agent.set_epsilon(saved_epsilon)
+        else:
+            saved_epsilon=agent.epsilon
+
         end=dt.datetime.now()
-        print("* ",action, f'{reward:0.2f}', info, f'{end.strftime("%a %b %d, %y")} at {end.strftime("%H:%M")}')
+        print("* ",action, f'{reward:0.2f}', info, f'{env.deltaTime:0.2f}s Time: {end.strftime("%H:%M")}')
 
         state= next_state
         n_steps += 1
-
-        # for multiple drones
-        # make drone position dictionary
-        #pos=env.get_position()
-        #drone_pos_dict = {vehicle_name: env.get_position()}
-        # make drone gps dictionary
-        #drone_gps_dict = {vehicle_name: env.df_gps.getDataframe()}
-
 
         env.GetTime(time.time())
         #episode stats once a minute
@@ -132,7 +136,7 @@ for episode in Episode_lst[episode_start:]:
     #env.df_gps.saveGPS2csv(f'data/GPS/gps_data_{vehicle_name}_episode{episode}_{filename}.csv')
     df_summary.to_csv(f'data/{filename}.csv', index=False)
     #saves copy of model on these intervals
-    if episode in [10, 50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800,900, 1000,1100,1200,1300,1400,1500]:
+    if episode in [10, 50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800,900, 1000,1100,1200,1300,1400, 1500, 1600, 1750]:
         agent.q_eval.save_weights_On_EpisodeNo(episode)
         agent.q_next.save_weights_On_EpisodeNo(episode)
 

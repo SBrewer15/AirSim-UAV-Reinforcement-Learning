@@ -15,6 +15,11 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import itertools
 
+def draw_outline(o, lw, foreground='black'):
+    import matplotlib.patheffects as patheffects
+    o.set_path_effects([patheffects.Stroke(
+        linewidth=lw, foreground=foreground), patheffects.Normal()])
+
 class imagenetStats:
     def __init__(self, UseInception=True):
         self.UseInception=UseInception
@@ -290,7 +295,7 @@ def RoadBelowReward(img, rng=50, reward=100, nonlinear=False):
         if nonlinear:
             rwd_arr=np.array(list(np.arange(1,rng+1))+list(np.arange(rng,0,-1)))
             rwd_mat=rwd_arr*rwd_arr[np.newaxis].T
-            rwd_mat=rwd_mat/(rwd_mat.max()*1000)
+            rwd_mat=rwd_mat/(rwd_mat.max()*1500)
             return (img_cntr*rwd_mat*reward).sum()
 
         else: return (img_cntr.sum()/(rng*2)**2)*reward
@@ -298,7 +303,7 @@ def RoadBelowReward(img, rng=50, reward=100, nonlinear=False):
 
 def initialGPS(x_cntr,y_cntr, sz=(224, 224), df_nofly=None):
     #################################### Plotting #########################################################
-    rad=100
+    rad=50
     fig, ax = plt.subplots(figsize=(5,5))
     ax=plt.gca(); ax.set_axis_off()
     ax.add_patch(patches.Rectangle((x_cntr-rad,y_cntr-rad+1), width=rad*2-1, height=rad*2-1, ec='k', facecolor='#b3b3b3'))
